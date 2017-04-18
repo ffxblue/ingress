@@ -1,0 +1,9 @@
+version: '2.1'
+
+services:
+  build:
+    build: .
+    environment:
+      PREFIX: ffxblue/nginx-ingress-controller
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
