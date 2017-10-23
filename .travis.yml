@@ -9,25 +9,31 @@ notifications:
   email: true
 
 go:
-  - 1.7
+  - 1.9
 
-go_import_path: k8s.io/ingress
+go_import_path: k8s.io/ingress-nginx
 
 env:
   global:
-    # to add additional secure variables:
-    # docker run --rm caktux/travis-cli encrypt key=value -r kubernetes/ingress
-    - RELEASE="ci-${TRAVIS_BUILD_ID}"
+    - CHANGE_MINIKUBE_NONE_USER=true
+    - KUBERNETES_VERSION=v1.7.5
+    - DOCKER=docker
 
-install:
-  - go get github.com/golang/lint/golint
-  - go get github.com/mattn/goveralls
-  - go get github.com/modocache/gover
-  - if ! go get github.com/golang/tools/cmd/cover; then go get golang.org/x/tools/cmd/cover; fi
-
-before_script:
-  - export PATH=$PATH:$PWD/hack/e2e-internal/
-
-script:  
-  - make fmt lint vet cover
-  #- make test-e2e
+jobs:
+  include:
+    - stage: Static Check
+      script: 
+        - go get github.com/golang/lint/golint
+        - make fmt lint vet
+    - stage: Coverage
+      script: 
+        - go get github.com/mattn/goveralls
+        - go get github.com/modocache/gover
+        - if ! go get github.com/golang/tools/cmd/cover; then go get golang.org/x/tools/cmd/cover; fi
+        - make cover
+    - stage: e2e
+      before_script:
+        - make e2e-image
+        - test/e2e/up.sh
+      script:
+        - make e2e-test

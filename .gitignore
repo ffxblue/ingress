@@ -2,10 +2,16 @@
 ._*
 .DS_Store
 
+# intellij files
+.idea/*
+
 # Eclipse files
 .classpath
 .project
 .settings/**
+
+# visual studio code
+.vscode/*
 
 # Emacs save files
 *~
@@ -22,3 +28,5 @@ Session.vim
 # coverage artifacts
 .coverprofile
 /gover.coverprofile
+
+e2e-tests
