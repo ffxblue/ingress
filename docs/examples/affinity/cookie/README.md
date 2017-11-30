@@ -8,9 +8,9 @@ Session stickyness is achieved through 3 annotations on the Ingress, as shown in
 
 |Name|Description|Values|
 | --- | --- | --- |
-|ingress.kubernetes.io/affinity|Sets the affinity type|string (in NGINX only ``cookie`` is possible|
-|ingress.kubernetes.io/session-cookie-name|Name of the cookie that will be used|string (default to route)|
-|ingress.kubernetes.io/session-cookie-hash|Type of hash that will be used in cookie value|sha1/md5/index|
+|nginx.ingress.kubernetes.io/affinity|Sets the affinity type|string (in NGINX only ``cookie`` is possible|
+|nginx.ingress.kubernetes.io/session-cookie-name|Name of the cookie that will be used|string (default to route)|
+|nginx.ingress.kubernetes.io/session-cookie-hash|Type of hash that will be used in cookie value|sha1/md5/index|
 
 You can create the ingress to test this
 
@@ -55,7 +55,7 @@ Last-Modified: Tue, 24 Jan 2017 14:02:19 GMT
 ETag: "58875e6b-264"
 Accept-Ranges: bytes
 ```
-In the example above, you can see a line containing the 'Set-Cookie: route' setting the right defined stickness cookie.
+In the example above, you can see a line containing the 'Set-Cookie: route' setting the right defined stickyness cookie.
 This cookie is created by NGINX containing the hash of the used upstream in that request. 
 If the user changes this cookie, NGINX creates a new one and redirect the user to another upstream.
 

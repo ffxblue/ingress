@@ -16,17 +16,18 @@ FROM BASEIMAGE
 
 CROSS_BUILD_COPY qemu-QEMUARCH-static /usr/bin/
 
-RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y \
+RUN clean-install \
   diffutils \
-  --no-install-recommends \
-  && rm -rf /var/lib/apt/lists/*
+  dumb-init
 
-RUN curl -sSL -o /tmp/dumb-init.deb http://ftp.us.debian.org/debian/pool/main/d/dumb-init/dumb-init_1.2.0-1_DUMB_ARCH.deb && \
-  dpkg -i /tmp/dumb-init.deb && \
-  rm /tmp/dumb-init.deb
-
-ENTRYPOINT ["/usr/bin/dumb-init"]
+# Create symlinks to redirect nginx logs to stdout and stderr docker log collector
+# This only works if nginx is started with CMD or ENTRYPOINT
+RUN mkdir -p /var/log/nginx \
+  && ln -sf /dev/stdout /var/log/nginx/access.log \
+  && ln -sf /dev/stderr /var/log/nginx/error.log
 
 COPY . /
+
+ENTRYPOINT ["/usr/bin/dumb-init"]
 
 CMD ["/nginx-ingress-controller"]

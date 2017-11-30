@@ -11,6 +11,14 @@
 load_module /etc/nginx/modules/ngx_http_modsecurity_module.so;
 {{ end }}
 
+{{ if $cfg.EnableOpentracing }}
+load_module /etc/nginx/modules/ngx_http_opentracing_module.so;
+{{ end }}
+
+{{ if (and $cfg.EnableOpentracing (ne $cfg.ZipkinCollectorHost "")) }}
+load_module /etc/nginx/modules/ngx_http_zipkin_module.so;
+{{ end }}
+
 daemon off;
 
 worker_processes {{ $cfg.WorkerProcesses }};
@@ -92,9 +100,11 @@ http {
     underscores_in_headers          {{ if $cfg.EnableUnderscoresInHeaders }}on{{ else }}off{{ end }};
     ignore_invalid_headers          {{ if $cfg.IgnoreInvalidHeaders }}on{{ else }}off{{ end }};
 
-    {{ if (and $cfg.EnableOpentracing (ne $cfg.ZipkinCollectorHost "")) }}
+    {{ if $cfg.EnableOpentracing }}
     opentracing on;
+    {{ end }}
 
+    {{ if (and $cfg.EnableOpentracing (ne $cfg.ZipkinCollectorHost "")) }}
     zipkin_collector_host           {{ $cfg.ZipkinCollectorHost }};
     zipkin_collector_port           {{ $cfg.ZipkinCollectorPort }};
     zipkin_service_name             {{ $cfg.ZipkinServiceName }};
@@ -102,6 +112,13 @@ http {
 
     include /etc/nginx/mime.types;
     default_type text/html;
+    
+    {{ if $cfg.EnableBrotli }}
+    brotli on;
+    brotli_comp_level {{ $cfg.BrotliLevel }};
+    brotli_types {{ $cfg.BrotliTypes }};
+    {{ end }}
+
     {{ if $cfg.UseGzip }}
     gzip on;
     gzip_comp_level 5;
@@ -109,6 +126,7 @@ http {
     gzip_min_length 256;
     gzip_types {{ $cfg.GzipTypes }};
     gzip_proxied any;
+    gzip_vary on;
     {{ end }}
 
     # Custom headers for response
@@ -199,6 +217,20 @@ http {
         default          $http_host;
         ''               $host;
     }
+
+    {{ if $cfg.ComputeFullForwardedFor }}
+    # We can't use $proxy_add_x_forwarded_for because the realip module
+    # replaces the remote_addr too soon
+    map $http_x_forwarded_for $full_x_forwarded_for {
+        {{ if $all.Cfg.UseProxyProtocol }}
+        default          "$http_x_forwarded_for, $proxy_protocol_addr";
+        ''               "$proxy_protocol_addr";
+        {{ else }}
+        default          "$http_x_forwarded_for, $realip_remote_addr";
+        ''               "$realip_remote_addr";
+        {{ end}}
+    }
+    {{ end }}
 
     server_name_in_redirect off;
     port_in_redirect        off;
@@ -361,6 +393,7 @@ http {
 
     {{ range $index, $server := $servers }}
 
+    ## start server {{ $server.Hostname }}
     server {
         server_name {{ $server.Hostname }} {{ $server.Alias }};
         {{ template "SERVER" serverConfig $all $server }}
@@ -372,6 +405,8 @@ http {
 
         {{ template "CUSTOM_ERRORS" $all }}
     }
+    ## end server {{ $server.Hostname }}
+
     {{ end }}
 
     # default server, used for NGINX healthcheck and access to nginx stats
@@ -508,20 +543,20 @@ stream {
      {{ $cors := .CorsConfig }}
      # Cors Preflight methods needs additional options and different Return Code
      if ($request_method = 'OPTIONS') {
-        add_header 'Access-Control-Allow-Origin' '{{ $cors.CorsAllowOrigin }}';
-        {{ if $cors.CorsAllowCredentials }} add_header 'Access-Control-Allow-Credentials' '{{ $cors.CorsAllowCredentials }}'; {{ end }}
-        add_header 'Access-Control-Allow-Methods' '{{ $cors.CorsAllowMethods }}';
-        add_header 'Access-Control-Allow-Headers' '{{ $cors.CorsAllowHeaders }}';
+        add_header 'Access-Control-Allow-Origin' '{{ $cors.CorsAllowOrigin }}' always;
+        {{ if $cors.CorsAllowCredentials }} add_header 'Access-Control-Allow-Credentials' '{{ $cors.CorsAllowCredentials }}' always; {{ end }}
+        add_header 'Access-Control-Allow-Methods' '{{ $cors.CorsAllowMethods }}' always;
+        add_header 'Access-Control-Allow-Headers' '{{ $cors.CorsAllowHeaders }}' always;
         add_header 'Access-Control-Max-Age' 1728000;
         add_header 'Content-Type' 'text/plain charset=UTF-8';
         add_header 'Content-Length' 0;
         return 204;
      }
 
-        add_header 'Access-Control-Allow-Origin' '{{ $cors.CorsAllowOrigin }}';
-        {{ if $cors.CorsAllowCredentials }} add_header 'Access-Control-Allow-Credentials' '{{ $cors.CorsAllowCredentials }}'; {{ end }}
-        add_header 'Access-Control-Allow-Methods' '{{ $cors.CorsAllowMethods }}';
-        add_header 'Access-Control-Allow-Headers' '{{ $cors.CorsAllowHeaders }}';
+        add_header 'Access-Control-Allow-Origin' '{{ $cors.CorsAllowOrigin }}' always;
+        {{ if $cors.CorsAllowCredentials }} add_header 'Access-Control-Allow-Credentials' '{{ $cors.CorsAllowCredentials }}' always; {{ end }}
+        add_header 'Access-Control-Allow-Methods' '{{ $cors.CorsAllowMethods }}' always;
+        add_header 'Access-Control-Allow-Headers' '{{ $cors.CorsAllowHeaders }}' always;
 
 {{ end }}
 
@@ -614,6 +649,7 @@ stream {
 
             proxy_set_header            Host                    {{ $location.ExternalAuth.Host }};
             proxy_set_header            X-Original-URL          $scheme://$http_host$request_uri;
+            proxy_set_header            X-Original-Method       $request_method;
             proxy_set_header            X-Auth-Request-Redirect $request_uri;
             proxy_set_header            X-Sent-From             "nginx-ingress-controller";
 
@@ -720,8 +756,17 @@ stream {
 
             # Pass the extracted client certificate to the backend
             {{ if not (empty $server.CertificateAuth.CAFileName) }}
+            {{ if $server.CertificateAuth.PassCertToUpstream }}
             proxy_set_header ssl-client-cert        $ssl_client_escaped_cert;
+            {{ else }}
+            proxy_set_header ssl-client-cert        "";
+            {{ end }}
             proxy_set_header ssl-client-verify      $ssl_client_verify;
+            proxy_set_header ssl-client-dn          $ssl_client_s_dn;
+            {{ else }}
+            proxy_set_header ssl-client-cert        "";
+            proxy_set_header ssl-client-verify      "";
+            proxy_set_header ssl-client-dn          "";
             {{ end }}
 
             # Allow websocket connections
@@ -729,7 +774,11 @@ stream {
             proxy_set_header                        Connection        $connection_upgrade;
 
             proxy_set_header X-Real-IP              $the_real_ip;
+            {{ if $all.Cfg.ComputeFullForwardedFor }}
+            proxy_set_header X-Forwarded-For        $full_x_forwarded_for;
+            {{ else }}
             proxy_set_header X-Forwarded-For        $the_real_ip;
+            {{ end }}
             proxy_set_header X-Forwarded-Host       $best_http_host;
             proxy_set_header X-Forwarded-Port       $pass_port;
             proxy_set_header X-Forwarded-Proto      $pass_access_scheme;
@@ -752,7 +801,11 @@ stream {
             proxy_send_timeout                      {{ $location.Proxy.SendTimeout }}s;
             proxy_read_timeout                      {{ $location.Proxy.ReadTimeout }}s;
 
-            proxy_redirect                          off;
+            {{ if (or (eq $location.Proxy.ProxyRedirectFrom "default") (eq $location.Proxy.ProxyRedirectFrom "off")) }}
+            proxy_redirect                          {{ $location.Proxy.ProxyRedirectFrom }};
+            {{ else }}
+            proxy_redirect                          {{ $location.Proxy.ProxyRedirectFrom }} {{ $location.Proxy.ProxyRedirectTo }};
+            {{ end }}
             proxy_buffering                         off;
             proxy_buffer_size                       "{{ $location.Proxy.BufferSize }}";
             proxy_buffers                           4 "{{ $location.Proxy.BufferSize }}";

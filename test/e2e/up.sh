@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-JSONPATH='{range .items[*]}{@.metadata.name}:{range @.status.conditions[*]}{@.type}={@.status};{end}{end}'
+export JSONPATH='{range .items[*]}{@.metadata.name}:{range @.status.conditions[*]}{@.type}={@.status};{end}{end}'
 
 echo "downloading kubectl..."
 curl -Lo kubectl https://storage.googleapis.com/kubernetes-release/release/$KUBERNETES_VERSION/bin/linux/amd64/kubectl && \
@@ -32,30 +32,6 @@ minikube update-context
 
 echo "waiting for kubernetes cluster"
 until kubectl get nodes -o jsonpath="$JSONPATH" 2>&1 | grep -q "Ready=True";
-do
-    sleep 1;
-done
-
-echo "deploying NGINX Ingress controller"
-cat deploy/namespace.yaml | kubectl apply -f -
-cat deploy/default-backend.yaml | kubectl apply -f -
-cat deploy/configmap.yaml | kubectl apply -f -
-cat deploy/tcp-services-configmap.yaml | kubectl apply -f -
-cat deploy/udp-services-configmap.yaml | kubectl apply -f -
-cat deploy/without-rbac.yaml | kubectl apply -f -
-cat deploy/provider/baremetal/service-nodeport.yaml | kubectl apply -f -
-
-echo "updating image..."
-kubectl set image \
-    deployments \
-    --namespace ingress-nginx \
-	--selector app=ingress-nginx \
-    nginx-ingress-controller=gcr.io/google_containers/nginx-ingress-controller:test
-
-sleep 5
-
-echo "waiting NGINX ingress pod..."
-until kubectl get pods -n ingress-nginx -l app=ingress-nginx -o jsonpath="$JSONPATH" 2>&1 | grep -q "Ready=True"; 
 do
     sleep 1;
 done

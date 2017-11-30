@@ -1,5 +1,185 @@
 # Changelog
 
+### 0.9-beta.19
+
+**Image:**  `quay.io/kubernetes-ingress-controller/nginx-ingress-controller:0.9.0-beta.19`
+
+*Changes:*
+
+- Fix regression with ingress.class annotation introduced in 0.9-beta.18
+
+### 0.9-beta.18
+
+**Image:**  `quay.io/kubernetes-ingress-controller/nginx-ingress-controller:0.9.0-beta.18`
+
+*Breaking changes:*
+
+- The NGINX ingress annotations contains a new prefix: **nginx.ingress.kubernetes.io**. This change is behind a flag to avoid breaking running deployments.
+  To avoid breaking a running NGINX ingress controller add the flag **--annotations-prefix=ingress.kubernetes.io** to the nginx ingress controller deployment.
+  There is one exception, the annotation `kubernetes.io/ingress.class` remains unchanged (this annotation is used in multiple ingress controllers)
+
+*New Features:*
+
+- NGINX 1.13.7
+- Support for s390x
+- e2e tests
+
+*Changes:*
+
+- [X] [#1648](https://github.com/kubernetes/ingress-nginx/pull/1648) Remove GenericController and add tests
+- [X] [#1650](https://github.com/kubernetes/ingress-nginx/pull/1650) Fix misspell errors
+- [X] [#1651](https://github.com/kubernetes/ingress-nginx/pull/1651) Remove node lister
+- [X] [#1652](https://github.com/kubernetes/ingress-nginx/pull/1652) Remove node lister
+- [X] [#1653](https://github.com/kubernetes/ingress-nginx/pull/1653) Fix diff execution
+- [X] [#1654](https://github.com/kubernetes/ingress-nginx/pull/1654) Fix travis script and update kubernetes to 1.8.0
+- [X] [#1658](https://github.com/kubernetes/ingress-nginx/pull/1658) Tests
+- [X] [#1659](https://github.com/kubernetes/ingress-nginx/pull/1659) Add nginx helper tests
+- [X] [#1662](https://github.com/kubernetes/ingress-nginx/pull/1662) Refactor annotations
+- [X] [#1665](https://github.com/kubernetes/ingress-nginx/pull/1665) Add the original http request method to the auth request
+- [X] [#1687](https://github.com/kubernetes/ingress-nginx/pull/1687) Fix use merge of annotations
+- [X] [#1689](https://github.com/kubernetes/ingress-nginx/pull/1689) Enable s390x
+- [X] [#1693](https://github.com/kubernetes/ingress-nginx/pull/1693) Fix docker build
+- [X] [#1695](https://github.com/kubernetes/ingress-nginx/pull/1695) Update nginx to v0.29
+- [X] [#1696](https://github.com/kubernetes/ingress-nginx/pull/1696) Always add cors headers when enabled
+- [X] [#1697](https://github.com/kubernetes/ingress-nginx/pull/1697) Disable features not availables in some platforms
+- [X] [#1698](https://github.com/kubernetes/ingress-nginx/pull/1698) Auth e2e tests
+- [X] [#1699](https://github.com/kubernetes/ingress-nginx/pull/1699) Refactor SSL intermediate CA certificate check
+- [X] [#1700](https://github.com/kubernetes/ingress-nginx/pull/1700) Add patch command to append publish-service flag
+- [X] [#1701](https://github.com/kubernetes/ingress-nginx/pull/1701) fix: Core() is deprecated use CoreV1() instead.
+- [X] [#1702](https://github.com/kubernetes/ingress-nginx/pull/1702) Fix TLS example [ci skip]
+- [X] [#1704](https://github.com/kubernetes/ingress-nginx/pull/1704) Add e2e tests to verify the correct source IP address
+- [X] [#1705](https://github.com/kubernetes/ingress-nginx/pull/1705) Add annotation for setting proxy_redirect
+- [X] [#1706](https://github.com/kubernetes/ingress-nginx/pull/1706) Increase ELB idle timeouts [ci skip]
+- [X] [#1710](https://github.com/kubernetes/ingress-nginx/pull/1710) Do not update a secret not referenced by ingress rules
+- [X] [#1713](https://github.com/kubernetes/ingress-nginx/pull/1713) add --report-node-internal-ip-address describe to cli-arguments.md
+- [X] [#1717](https://github.com/kubernetes/ingress-nginx/pull/1717) Fix command used to detect version
+- [X] [#1720](https://github.com/kubernetes/ingress-nginx/pull/1720) Add docker-registry example [ci skip]
+- [X] [#1722](https://github.com/kubernetes/ingress-nginx/pull/1722) Add annotation to enable passing the certificate to the upstream server
+- [X] [#1723](https://github.com/kubernetes/ingress-nginx/pull/1723) Add timeouts to http server and additional pprof routes
+- [X] [#1724](https://github.com/kubernetes/ingress-nginx/pull/1724) Cleanup main
+- [X] [#1725](https://github.com/kubernetes/ingress-nginx/pull/1725) Enable all e2e tests
+- [X] [#1726](https://github.com/kubernetes/ingress-nginx/pull/1726) fix: replace deprecated methods.
+- [X] [#1734](https://github.com/kubernetes/ingress-nginx/pull/1734) Changes ssl-client-cert header
+- [X] [#1737](https://github.com/kubernetes/ingress-nginx/pull/1737) Update nginx v1.13.7
+- [X] [#1738](https://github.com/kubernetes/ingress-nginx/pull/1738) Cleanup
+- [X] [#1739](https://github.com/kubernetes/ingress-nginx/pull/1739) Improve e2e checks
+- [X] [#1740](https://github.com/kubernetes/ingress-nginx/pull/1740) Update nginx
+- [X] [#1745](https://github.com/kubernetes/ingress-nginx/pull/1745) Simplify annotations
+- [X] [#1746](https://github.com/kubernetes/ingress-nginx/pull/1746) Cleanup of e2e helpers
+
+*Documentation:*
+
+- [X] [#1657](https://github.com/kubernetes/ingress-nginx/pull/1657) Add better documentation for deploying for dev
+- [X] [#1680](https://github.com/kubernetes/ingress-nginx/pull/1680) Add doc for log-format-escape-json [ci skip]
+- [X] [#1685](https://github.com/kubernetes/ingress-nginx/pull/1685) Fix default SSL certificate flag docs [ci skip]
+- [X] [#1686](https://github.com/kubernetes/ingress-nginx/pull/1686) Fix development doc [ci skip]
+- [X] [#1727](https://github.com/kubernetes/ingress-nginx/pull/1727) fix: fix typos in docs.
+- [X] [#1747](https://github.com/kubernetes/ingress-nginx/pull/1747) Add config-map usage and options to Documentation
+
+
+### 0.9-beta.17
+
+**Image:**  `quay.io/kubernetes-ingress-controller/nginx-ingress-controller:0.9.0-beta.17`
+
+*Changes:*
+
+- Fix regression with annotations introduced in 0.9-beta.16 (thanks @tomlanyon)
+
+### 0.9-beta.16
+
+**Image:**  `quay.io/kubernetes-ingress-controller/nginx-ingress-controller:0.9.0-beta.16`
+
+*New Features:*
+
+- Images are published to [quay.io](https://quay.io/repository/kubernetes-ingress-controller)
+- NGINX 1.13.6
+- OpenTracing Jaeger support inNGINX
+- [ModSecurity support](https://github.com/SpiderLabs/ModSecurity-nginx)
+- Support for [brotli compression in NGINX](https://certsimple.com/blog/nginx-brotli)
+- Return 503 error instead of 404 when no endpoint is available
+
+*Breaking changes:*
+
+- The default SSL configuration was updated to use `TLSv1.2` and the default cipher list is `ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA256`
+
+*Known issues:*
+
+- When ModSecurity is enabled a segfault could occur - [ModSecurity#1590](https://github.com/SpiderLabs/ModSecurity/issues/1590)
+
+*Changes:*
+
+- [X] [#1489](https://github.com/kubernetes/ingress-nginx/pull/1489) Compute a real `X-Forwarded-For` header
+- [X] [#1490](https://github.com/kubernetes/ingress-nginx/pull/1490) Introduce an upstream-hash-by annotation to support consistent hashing by nginx variable or text
+- [X] [#1498](https://github.com/kubernetes/ingress-nginx/pull/1498) Add modsecurity module
+- [X] [#1500](https://github.com/kubernetes/ingress-nginx/pull/1500) Enable modsecurity feature
+- [X] [#1501](https://github.com/kubernetes/ingress-nginx/pull/1501) Request ingress controller version in issue template
+- [X] [#1502](https://github.com/kubernetes/ingress-nginx/pull/1502) Force reload on template change
+- [X] [#1503](https://github.com/kubernetes/ingress-nginx/pull/1503) Add falg to report node internal IP address in ingress status
+- [X] [#1505](https://github.com/kubernetes/ingress-nginx/pull/1505) Increase size of variable hash bucket
+- [X] [#1506](https://github.com/kubernetes/ingress-nginx/pull/1506) Update nginx ssl configuration
+- [X] [#1507](https://github.com/kubernetes/ingress-nginx/pull/1507) Add tls session ticket key setting
+- [X] [#1511](https://github.com/kubernetes/ingress-nginx/pull/1511) fix deprecated ssl_client_cert. add ssl_client_verify header
+- [X] [#1513](https://github.com/kubernetes/ingress-nginx/pull/1513) Return 503 by default when no endpoint is available
+- [X] [#1520](https://github.com/kubernetes/ingress-nginx/pull/1520) Change alias behaviour not to create new server section needlessly
+- [X] [#1523](https://github.com/kubernetes/ingress-nginx/pull/1523) Include the serversnippet from the config map in server blocks
+- [X] [#1533](https://github.com/kubernetes/ingress-nginx/pull/1533) Remove authentication send body annotation
+- [X] [#1535](https://github.com/kubernetes/ingress-nginx/pull/1535) Remove auth-send-body [ci skip]
+- [X] [#1538](https://github.com/kubernetes/ingress-nginx/pull/1538) Rename service-nodeport.yml to service-nodeport.yaml
+- [X] [#1543](https://github.com/kubernetes/ingress-nginx/pull/1543) Fix glog initialization error
+- [X] [#1544](https://github.com/kubernetes/ingress-nginx/pull/1544) Fix `make container` for OSX.
+- [X] [#1547](https://github.com/kubernetes/ingress-nginx/pull/1547) fix broken GCE-GKE service descriptor
+- [X] [#1550](https://github.com/kubernetes/ingress-nginx/pull/1550) Add e2e tests - default backend
+- [X] [#1553](https://github.com/kubernetes/ingress-nginx/pull/1553) Cors features improvements
+- [X] [#1554](https://github.com/kubernetes/ingress-nginx/pull/1554) Add missing unit test for nextPowerOf2 function
+- [X] [#1556](https://github.com/kubernetes/ingress-nginx/pull/1556) fixed https port forwarding in Azure LB service
+- [X] [#1566](https://github.com/kubernetes/ingress-nginx/pull/1566) Release nginx-slim 0.27
+- [X] [#1568](https://github.com/kubernetes/ingress-nginx/pull/1568) update defaultbackend tag
+- [X] [#1569](https://github.com/kubernetes/ingress-nginx/pull/1569) Update 404 server image
+- [X] [#1570](https://github.com/kubernetes/ingress-nginx/pull/1570) Update nginx version
+- [X] [#1571](https://github.com/kubernetes/ingress-nginx/pull/1571) Fix cors tests
+- [X] [#1572](https://github.com/kubernetes/ingress-nginx/pull/1572) Certificate Auth Bugfix
+- [X] [#1577](https://github.com/kubernetes/ingress-nginx/pull/1577) Do not use relative urls for yaml files
+- [X] [#1580](https://github.com/kubernetes/ingress-nginx/pull/1580) Upgrade to use the latest version of nginx-opentracing.
+- [X] [#1581](https://github.com/kubernetes/ingress-nginx/pull/1581) Fix Makefile to work in OSX.
+- [X] [#1582](https://github.com/kubernetes/ingress-nginx/pull/1582) Add scripts to release from travis-ci
+- [X] [#1584](https://github.com/kubernetes/ingress-nginx/pull/1584) Add missing probes in deployments
+- [X] [#1585](https://github.com/kubernetes/ingress-nginx/pull/1585) Add version flag
+- [X] [#1587](https://github.com/kubernetes/ingress-nginx/pull/1587) Use pass access scheme in signin url
+- [X] [#1589](https://github.com/kubernetes/ingress-nginx/pull/1589) Fix upstream vhost Equal comparison
+- [X] [#1590](https://github.com/kubernetes/ingress-nginx/pull/1590) Fix Equals Comparison for CORS annotation
+- [X] [#1592](https://github.com/kubernetes/ingress-nginx/pull/1592) Update opentracing module and release image to  quay.io
+- [X] [#1593](https://github.com/kubernetes/ingress-nginx/pull/1593) Fix makefile default task
+- [X] [#1605](https://github.com/kubernetes/ingress-nginx/pull/1605) Fix ExternalName services
+- [X] [#1607](https://github.com/kubernetes/ingress-nginx/pull/1607) Add support for named ports with service-upstream. #1459
+- [X] [#1608](https://github.com/kubernetes/ingress-nginx/pull/1608) Fix issue with clusterIP detection on service upstream. #1534
+- [X] [#1610](https://github.com/kubernetes/ingress-nginx/pull/1610) Only set alias if not already set
+- [X] [#1618](https://github.com/kubernetes/ingress-nginx/pull/1618) Fix full XFF with PROXY
+- [X] [#1620](https://github.com/kubernetes/ingress-nginx/pull/1620) Add gzip_vary
+- [X] [#1621](https://github.com/kubernetes/ingress-nginx/pull/1621) Fix path to ELB listener image
+- [X] [#1627](https://github.com/kubernetes/ingress-nginx/pull/1627) Add brotli support
+- [X] [#1629](https://github.com/kubernetes/ingress-nginx/pull/1629) Add ssl-client-dn header
+- [X] [#1632](https://github.com/kubernetes/ingress-nginx/pull/1632) Rename OWNERS assignees: to approvers:
+- [X] [#1635](https://github.com/kubernetes/ingress-nginx/pull/1635) Install dumb-init using apt-get
+- [X] [#1636](https://github.com/kubernetes/ingress-nginx/pull/1636) Update go to 1.9.2
+- [X] [#1640](https://github.com/kubernetes/ingress-nginx/pull/1640) Update nginx to 0.28 and enable brotli
+
+*Documentation:*
+
+- [X] [#1491](https://github.com/kubernetes/ingress-nginx/pull/1491) Note that GCE has moved to a new repo
+- [X] [#1492](https://github.com/kubernetes/ingress-nginx/pull/1492) Cleanup readme.md
+- [X] [#1494](https://github.com/kubernetes/ingress-nginx/pull/1494) Cleanup
+- [X] [#1497](https://github.com/kubernetes/ingress-nginx/pull/1497) Cleanup examples directory
+- [X] [#1504](https://github.com/kubernetes/ingress-nginx/pull/1504) Clean readme
+- [X] [#1508](https://github.com/kubernetes/ingress-nginx/pull/1508) Fixed link in prometheus example
+- [X] [#1527](https://github.com/kubernetes/ingress-nginx/pull/1527) Split documentation
+- [X] [#1536](https://github.com/kubernetes/ingress-nginx/pull/1536) Update documentation and examples [ci skip]
+- [X] [#1541](https://github.com/kubernetes/ingress-nginx/pull/1541) fix(documentation): Fix some typos
+- [X] [#1548](https://github.com/kubernetes/ingress-nginx/pull/1548) link to prometheus docs
+- [X] [#1562](https://github.com/kubernetes/ingress-nginx/pull/1562) Fix development guide link
+- [X] [#1563](https://github.com/kubernetes/ingress-nginx/pull/1563) Add task to verify markdown links
+- [X] [#1583](https://github.com/kubernetes/ingress-nginx/pull/1583) Add note for certificate authentication in Cloudflare
+- [X] [#1617](https://github.com/kubernetes/ingress-nginx/pull/1617) fix typo in user-guide/annotations.md
+
 ### 0.9-beta.15
 
 **Image:**  `gcr.io/google_containers/nginx-ingress-controller:0.9.0-beta.15`

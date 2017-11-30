@@ -17,18 +17,27 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 
 	"k8s.io/api/core/v1"
 	apiextcs "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
-	meta_v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
+	restclient "k8s.io/client-go/rest"
 
+	"github.com/golang/glog"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
 
 const (
 	podName = "test-ingress-controller"
+)
+
+const (
+	MaxRetry = 200
+	NoRetry  = 1
 )
 
 type RequestScheme string
@@ -45,6 +54,7 @@ type Framework struct {
 
 	// A Kubernetes and Service Catalog client
 	KubeClientSet          kubernetes.Interface
+	KubeConfig             *restclient.Config
 	APIExtensionsClientSet apiextcs.Interface
 
 	// Namespace in which all test resources should reside
@@ -54,9 +64,12 @@ type Framework struct {
 	// we install a Cleanup action before each test and clear it after.  If we
 	// should abort, the AfterSuite hook should run all Cleanup actions.
 	cleanupHandle CleanupActionHandle
+
+	NginxHTTPURL  string
+	NginxHTTPSURL string
 }
 
-// NewFramework makes a new framework and sets up a BeforeEach/AfterEach for
+// NewDefaultFramework makes a new framework and sets up a BeforeEach/AfterEach for
 // you (you can write additional before/after each functions).
 func NewDefaultFramework(baseName string) *Framework {
 	f := &Framework{
@@ -77,11 +90,20 @@ func (f *Framework) BeforeEach() {
 	kubeConfig, err := LoadConfig(TestContext.KubeConfig, TestContext.KubeContext)
 	Expect(err).NotTo(HaveOccurred())
 
+	f.KubeConfig = kubeConfig
 	f.KubeClientSet, err = kubernetes.NewForConfig(kubeConfig)
 	Expect(err).NotTo(HaveOccurred())
 
 	By("Building a namespace api object")
 	f.Namespace, err = CreateKubeNamespace(f.BaseName, f.KubeClientSet)
+	Expect(err).NotTo(HaveOccurred())
+
+	By("Building NGINX HTTP URL")
+	f.NginxHTTPURL, err = f.GetNginxURL(HTTP)
+	Expect(err).NotTo(HaveOccurred())
+
+	By("Building NGINX HTTPS URL")
+	f.NginxHTTPSURL, err = f.GetNginxURL(HTTPS)
 	Expect(err).NotTo(HaveOccurred())
 }
 
@@ -94,7 +116,7 @@ func (f *Framework) AfterEach() {
 	Expect(err).NotTo(HaveOccurred())
 
 	By("Waiting for test namespace to no longer exist")
-	err = WaitForKubeNamespaceNotExist(f.KubeClientSet, f.Namespace.Name)
+	err = WaitForNoPodsInNamespace(f.KubeClientSet, f.Namespace.Name)
 	Expect(err).NotTo(HaveOccurred())
 }
 
@@ -115,7 +137,7 @@ func (f *Framework) GetNginxIP() (string, error) {
 
 // GetNginxPort returns the number of TCP port where NGINX is running
 func (f *Framework) GetNginxPort(name string) (int, error) {
-	s, err := f.KubeClientSet.CoreV1().Services("ingress-nginx").Get("ingress-nginx", meta_v1.GetOptions{})
+	s, err := f.KubeClientSet.CoreV1().Services("ingress-nginx").Get("ingress-nginx", metav1.GetOptions{})
 	if err != nil {
 		return -1, err
 	}
@@ -142,4 +164,71 @@ func (f *Framework) GetNginxURL(scheme RequestScheme) (string, error) {
 	}
 
 	return fmt.Sprintf("%v://%v:%v", scheme, ip, port), nil
+}
+
+// WaitForNginxServer waits until the nginx configuration contains a particular server section
+func (f *Framework) WaitForNginxServer(name string, matcher func(cfg string) bool) error {
+	// initial wait to allow the update of the ingress controller
+	time.Sleep(5 * time.Second)
+	return wait.PollImmediate(Poll, time.Minute*2, f.matchNginxConditions(name, matcher))
+}
+
+// NginxLogs returns the logs of the nginx ingress controller pod running
+func (f *Framework) NginxLogs() (string, error) {
+	l, err := f.KubeClientSet.CoreV1().Pods("ingress-nginx").List(metav1.ListOptions{
+		LabelSelector: "app=ingress-nginx",
+	})
+	if err != nil {
+		return "", err
+	}
+
+	if len(l.Items) == 0 {
+		return "", fmt.Errorf("no nginx ingress controller pod is running")
+	}
+
+	if len(l.Items) != 1 {
+		return "", fmt.Errorf("unexpected number of nginx ingress controller pod is running (%v)", len(l.Items))
+	}
+
+	return f.Logs(&l.Items[0])
+}
+
+func (f *Framework) matchNginxConditions(name string, matcher func(cfg string) bool) wait.ConditionFunc {
+	return func() (bool, error) {
+		l, err := f.KubeClientSet.CoreV1().Pods("ingress-nginx").List(metav1.ListOptions{
+			LabelSelector: "app=ingress-nginx",
+		})
+		if err != nil {
+			return false, err
+		}
+
+		if len(l.Items) == 0 {
+			return false, fmt.Errorf("no nginx ingress controller pod is running")
+		}
+
+		if len(l.Items) != 1 {
+			return false, fmt.Errorf("unexpected number of nginx ingress controller pod is running (%v)", len(l.Items))
+		}
+
+		cmd := fmt.Sprintf("cat /etc/nginx/nginx.conf | awk '/## start server %v/,/## end server %v/'", name, name)
+		o, err := f.ExecCommand(&l.Items[0], cmd)
+		if err != nil {
+			return false, err
+		}
+
+		var match bool
+		errs := InterceptGomegaFailures(func() {
+			if matcher(o) {
+				match = true
+			}
+		})
+
+		glog.V(2).Infof("Errors waiting for conditions: %v", errs)
+
+		if match {
+			return true, nil
+		}
+
+		return false, nil
+	}
 }

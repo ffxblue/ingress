@@ -33,7 +33,7 @@ $ go get -u github.com/golang/dep
 This will automatically save the dependencies to the `vendor/` directory.
 
 ```console
-$ cd $GOPATH/src/ingress-nginx
+$ cd $GOPATH/src/k8s.io/ingress-nginx
 $ dep ensure
 $ dep ensure -update
 $ dep prune
@@ -51,7 +51,7 @@ In order to use your local Docker, you may need to set the following environment
 # "gcloud docker" (default) or "docker"
 $ export DOCKER=<docker>
 
-# "gcr.io/google_containers" (default), "index.docker.io", or your own registry
+# "quay.io/kubernetes-ingress-controller" (default), "index.docker.io", or your own registry
 $ export REGISTRY=<your-docker-registry>
 ```
 
@@ -69,13 +69,13 @@ $ make build
 Build a local container image
 
 ```console
-$ make docker-build TAG=<tag> PREFIX=$USER/ingress-controller
+$ TAG=<tag> REGISTRY=$USER/ingress-controller make docker-build
 ```
 
 Push the container image to a remote repository
 
 ```console
-$ make docker-push TAG=<tag> PREFIX=$USER/ingress-controller
+$ TAG=<tag> REGISTRY=$USER/ingress-controller make docker-push
 ```
 
 ## Deploying
@@ -123,4 +123,3 @@ cherry-picked into a release branch.
 * If you're not confident about the stability of the code,
 [tag](https://help.github.com/articles/working-with-tags/) it as alpha or beta.
 Typically, a release branch should have stable code.
-

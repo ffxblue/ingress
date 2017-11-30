@@ -14,8 +14,13 @@
 - [Using Helm](#using-helm)
 - [Verify installation](#verify-installation)
 - [Detect installed version](#detect-installed-version)
+- [Deploying the config-map](#deploying-the-config-map)
 
-## Mandatory commands
+## Generic Deployment 
+
+The following resources are required for a generic deployment.
+
+### Mandatory commands
 
 ```console
 curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/namespace.yaml \
@@ -34,14 +39,14 @@ curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/ud
     | kubectl apply -f -
 ```
 
-## Install without RBAC roles
+### Install without RBAC roles
 
 ```console
 curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/without-rbac.yaml \
     | kubectl apply -f -
 ```
 
-## Install with RBAC roles
+### Install with RBAC roles
 
 Please check the [RBAC](rbac.md) document.
 
@@ -53,14 +58,51 @@ curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/wi
     | kubectl apply -f -
 ```
 
-## Custom Service provider
+## Custom Service Provider Deployment
 
-There are cloud provider specific yaml files
+There are cloud provider specific yaml files.
 
 ### minikube
 
+For standard usage:
+
 ```console
 minikube addons enable ingress
+```
+
+For development:
+
+1. Disable the ingress addon:
+
+```console
+$ minikube addons disable ingress
+```
+
+2. Use the [docker daemon](https://github.com/kubernetes/minikube/blob/master/docs/reusing_the_docker_daemon.md)
+3. [Build the image](../docs/development.md)
+4. Perform [Mandatory commands](#mandatory-commands)
+5. Install the `nginx-ingress-controller` deployment [without RBAC roles](#install-without-rbac-roles) or [with RBAC roles](#install-with-rbac-roles)
+6. Edit the `nginx-ingress-controller` deployment to use your custom image. Local images can be seen by performing `docker images`.
+
+```console
+$ kubectl edit deployment nginx-ingress-controller -n ingress-nginx
+```
+
+edit the following section:
+
+```yaml
+image: <IMAGE-NAME>:<TAG>
+imagePullPolicy: IfNotPresent
+name: nginx-ingress-controller
+```
+
+7. Confirm the `nginx-ingress-controller` deployment exists:
+
+```console
+$ kubectl get pods -n ingress-nginx 
+NAME                                       READY     STATUS    RESTARTS   AGE
+default-http-backend-66b447d9cf-rrlf9      1/1       Running   0          12s
+nginx-ingress-controller-fdcdcd6dd-vvpgs   1/1       Running   0          11s
 ```
 
 ### AWS
@@ -71,11 +113,18 @@ This setup requires to choose in which layer (L4 or L7) we want to configure the
 - [Layer 4](https://en.wikipedia.org/wiki/OSI_model#Layer_4:_Transport_Layer): use TCP as the listener protocol for ports 80 and 443.
 - [Layer 7](https://en.wikipedia.org/wiki/OSI_model#Layer_7:_Application_Layer): use HTTP as the listener protocol for port 80 and terminate TLS in the ELB
 
+Patch the nginx ingress controller deployment to add the flag `--publish-service`
+
+```console
+kubectl patch deployment -n ingress-nginx nginx-ingress-controller --type='json' \
+  --patch="$(curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/patch-deployment.yaml)"
+```
+
 For L4:
 
 ```console
-kubectl apply -f provider/aws/service-l4.yaml
-kubectl apply -f provider/aws/patch-configmap-l4.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/aws/service-l4.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/aws/patch-configmap-l4.yaml
 ```
 
 For L7:
@@ -85,26 +134,33 @@ Then execute:
 
 ```console
 kubectl apply -f provider/aws/service-l7.yaml
-kubectl apply -f provider/aws/patch-configmap-l7.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/aws/patch-configmap-l7.yaml
 ```
 
 This example creates an ELB with just two listeners, one in port 80 and another in port 443
 
-![Listeners](../docs/images/listener.png)
+![Listeners](../docs/images/elb-l7-listener.png)
 
 If the ingress controller uses RBAC run:
 
 ```console
-kubectl apply -f provider/patch-service-with-rbac.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/patch-service-with-rbac.yaml
 ```
 
 If not run:
 
 ```console
-kubectl apply -f provider/patch-service-without-rbac.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/patch-service-without-rbac.yaml
 ```
 
 ### GCE - GKE
+
+Patch the nginx ingress controller deployment to add the flag `--publish-service`
+
+```console
+kubectl patch deployment -n ingress-nginx nginx-ingress-controller --type='json' \
+  --patch="$(curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/patch-deployment.yaml)"
+```
 
 ```console
 curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/gce-gke/service.yaml \
@@ -114,18 +170,25 @@ curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/pr
 If the ingress controller uses RBAC run:
 
 ```console
-kubectl apply -f provider/patch-service-with-rbac.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/patch-service-with-rbac.yaml
 ```
 
 If not run:
 
 ```console
-kubectl apply -f provider/patch-service-without-rbac.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/patch-service-without-rbac.yaml
 ```
 
 **Important Note:** proxy protocol is not supported in GCE/GKE
 
 ### Azure
+
+Patch the nginx ingress controller deployment to add the flag `--publish-service`
+
+```console
+kubectl patch deployment -n ingress-nginx nginx-ingress-controller --type='json' \
+  --patch="$(curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/patch-deployment.yaml)"
+```
 
 ```console
 curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/azure/service.yaml \
@@ -135,13 +198,13 @@ curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/pr
 If the ingress controller uses RBAC run:
 
 ```console
-kubectl apply -f provider/patch-service-with-rbac.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/patch-service-with-rbac.yaml
 ```
 
 If not run:
 
 ```console
-kubectl apply -f provider/patch-service-without-rbac.yaml
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/provider/patch-service-without-rbac.yaml
 ```
 
 **Important Note:** proxy protocol is not supported in GCE/GKE
@@ -173,7 +236,6 @@ kubectl get pods --all-namespaces -l app=ingress-nginx --watch
 ```
 
 Once the operator pods are running, you can cancel the above command by typing `Ctrl+C`.
-
 Now, you are ready to create your first ingress.
 
 ## Detect installed version
@@ -183,5 +245,23 @@ To detect which version of the ingress controller is running, exec into the pod 
 ```console
 POD_NAMESPACE=ingress-nginx
 POD_NAME=$(kubectl get pods -n $POD_NAMESPACE -l app=ingress-nginx -o jsonpath={.items[0].metadata.name})
-kubectl exec -it $POD_NAME -n $POD_NAMESPACE /nginx-ingress-controller version
+kubectl exec -it $POD_NAME -n $POD_NAMESPACE -- /nginx-ingress-controller --version
 ```
+
+## Deploying the config-map
+
+A config map can be used to configure system components for the nginx-controller. In order to begin using a config-map
+make sure it has been created and is being used in the deployment.
+
+It is created as seen in the [Mandatory Commands](#mandatory-commands) section above.
+```console
+curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/configmap.yaml \
+    | kubectl apply -f -
+```
+
+and is setup to be used in the deployment [without-rbac](without-rbac.yaml) or [with-rbac](with-rbac.yaml) with the following line:
+```yaml
+- --configmap=$(POD_NAMESPACE)/nginx-configuration
+```
+
+For information on using the config-map, see its [user-guide](../docs/user-guide/configmap.md).

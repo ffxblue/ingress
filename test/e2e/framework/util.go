@@ -1,9 +1,12 @@
 /*
 Copyright 2014 The Kubernetes Authors.
+
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at
+
     http://www.apache.org/licenses/LICENSE-2.0
+
 Unless required by applicable law or agreed to in writing, software
 distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -89,9 +92,10 @@ func LoadConfig(config, context string) (*rest.Config, error) {
 	return clientcmd.NewDefaultClientConfig(*c, &clientcmd.ConfigOverrides{}).ClientConfig()
 }
 
-// RunId unique identifier of the e2e run
-var RunId = uuid.NewUUID()
+// RunID unique identifier of the e2e run
+var RunID = uuid.NewUUID()
 
+// CreateKubeNamespace creates a new namespace in the cluster
 func CreateKubeNamespace(baseName string, c kubernetes.Interface) (*v1.Namespace, error) {
 	ns := &v1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
@@ -102,7 +106,7 @@ func CreateKubeNamespace(baseName string, c kubernetes.Interface) (*v1.Namespace
 	var got *v1.Namespace
 	err := wait.PollImmediate(Poll, defaultTimeout, func() (bool, error) {
 		var err error
-		got, err = c.Core().Namespaces().Create(ns)
+		got, err = c.CoreV1().Namespaces().Create(ns)
 		if err != nil {
 			Logf("Unexpected error while creating namespace: %v", err)
 			return false, nil
@@ -116,8 +120,9 @@ func CreateKubeNamespace(baseName string, c kubernetes.Interface) (*v1.Namespace
 	return got, nil
 }
 
+// DeleteKubeNamespace deletes a namespace and all the objects inside
 func DeleteKubeNamespace(c kubernetes.Interface, namespace string) error {
-	return c.Core().Namespaces().Delete(namespace, nil)
+	return c.CoreV1().Namespaces().Delete(namespace, metav1.NewDeleteOptions(0))
 }
 
 func ExpectNoError(err error, explain ...interface{}) {
@@ -127,6 +132,7 @@ func ExpectNoError(err error, explain ...interface{}) {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred(), explain...)
 }
 
+// WaitForKubeNamespaceNotExist waits until a namespaces is not present in the cluster
 func WaitForKubeNamespaceNotExist(c kubernetes.Interface, namespace string) error {
 	return wait.PollImmediate(Poll, time.Minute*2, namespaceNotExist(c, namespace))
 }
@@ -144,7 +150,29 @@ func namespaceNotExist(c kubernetes.Interface, namespace string) wait.ConditionF
 	}
 }
 
-// Waits default amount of time (PodStartTimeout) for the specified pod to become running.
+// WaitForNoPodsInNamespace waits until there are no pods running in a namespace
+func WaitForNoPodsInNamespace(c kubernetes.Interface, namespace string) error {
+	return wait.PollImmediate(Poll, time.Minute*2, noPodsInNamespace(c, namespace))
+}
+
+func noPodsInNamespace(c kubernetes.Interface, namespace string) wait.ConditionFunc {
+	return func() (bool, error) {
+		items, err := c.CoreV1().Pods(namespace).List(metav1.ListOptions{})
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+
+		if len(items.Items) == 0 {
+			return true, nil
+		}
+		return false, nil
+	}
+}
+
+// WaitForPodRunningInNamespace waits a default amount of time (PodStartTimeout) for the specified pod to become running.
 // Returns an error if timeout occurs first, or pod goes in to failed state.
 func WaitForPodRunningInNamespace(c kubernetes.Interface, pod *v1.Pod) error {
 	if pod.Status.Phase == v1.PodRunning {
@@ -155,6 +183,72 @@ func WaitForPodRunningInNamespace(c kubernetes.Interface, pod *v1.Pod) error {
 
 func waitTimeoutForPodRunningInNamespace(c kubernetes.Interface, podName, namespace string, timeout time.Duration) error {
 	return wait.PollImmediate(Poll, defaultTimeout, podRunning(c, podName, namespace))
+}
+
+// WaitForSecretInNamespace waits a default amount of time for the specified secret is present in a particular namespace
+func WaitForSecretInNamespace(c kubernetes.Interface, namespace, name string) error {
+	return wait.PollImmediate(1*time.Second, time.Minute*2, secretInNamespace(c, namespace, name))
+}
+
+func secretInNamespace(c kubernetes.Interface, namespace, name string) wait.ConditionFunc {
+	return func() (bool, error) {
+		s, err := c.CoreV1().Secrets(namespace).Get(name, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return false, err
+		}
+		if err != nil {
+			return false, err
+		}
+
+		if s != nil {
+			return true, nil
+		}
+		return false, nil
+	}
+}
+
+// WaitForNoIngressInNamespace waits until there is no ingress object in a particular namespace
+func WaitForNoIngressInNamespace(c kubernetes.Interface, namespace, name string) error {
+	return wait.PollImmediate(1*time.Second, time.Minute*2, noIngressInNamespace(c, namespace, name))
+}
+
+func noIngressInNamespace(c kubernetes.Interface, namespace, name string) wait.ConditionFunc {
+	return func() (bool, error) {
+		ing, err := c.ExtensionsV1beta1().Ingresses(namespace).Get(name, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		if err != nil {
+			return false, err
+		}
+
+		if ing == nil {
+			return true, nil
+		}
+		return false, nil
+	}
+}
+
+// WaitForIngressInNamespace waits until a particular ingress object exists namespace
+func WaitForIngressInNamespace(c kubernetes.Interface, namespace, name string) error {
+	return wait.PollImmediate(1*time.Second, time.Minute*2, ingressInNamespace(c, namespace, name))
+}
+
+func ingressInNamespace(c kubernetes.Interface, namespace, name string) wait.ConditionFunc {
+	return func() (bool, error) {
+		ing, err := c.ExtensionsV1beta1().Ingresses(namespace).Get(name, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			return false, err
+		}
+		if err != nil {
+			return false, err
+		}
+
+		if ing != nil {
+			return true, nil
+		}
+		return false, nil
+	}
 }
 
 func podRunning(c kubernetes.Interface, podName, namespace string) wait.ConditionFunc {
@@ -171,4 +265,18 @@ func podRunning(c kubernetes.Interface, podName, namespace string) wait.Conditio
 		}
 		return false, nil
 	}
+}
+
+// NewInt32 converts int32 to a pointer
+func NewInt32(val int32) *int32 {
+	p := new(int32)
+	*p = val
+	return p
+}
+
+// NewInt64 converts int64 to a pointer
+func NewInt64(val int64) *int64 {
+	p := new(int64)
+	*p = val
+	return p
 }
