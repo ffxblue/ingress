@@ -69,9 +69,6 @@ type Backend struct {
 	// http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_next_upstream
 	ProxyNextUpstream string `json:"proxy-next-upstream"`
 
-	// Parameters for proxy-pass directive (eg. Apache web server).
-	ProxyPassParams string `json:"proxy-pass-params"`
-
 	// Sets the original text that should be changed in the "Location" and "Refresh" header fields of a proxied server response.
 	// http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_redirect
 	// Default: off
@@ -124,6 +121,9 @@ type Backend struct {
 	// http://nginx.org/en/docs/http/ngx_http_upstream_module.html#hash
 	UpstreamHashBy string `json:"upstream-hash-by"`
 
+	// Let's us choose a load balancing algorithm per ingress
+	LoadBalancing string `json:"load-balance"`
+
 	// WhitelistSourceRange allows limiting access to certain client addresses
 	// http://nginx.org/en/docs/http/ngx_http_access_module.html
 	WhitelistSourceRange []string `json:"whitelist-source-range,-"`
@@ -138,4 +138,8 @@ type Backend struct {
 	// Sets the initial amount after which the further transmission of a response to a client will be rate limited.
 	// http://nginx.org/en/docs/http/ngx_http_core_module.html#limit_rate_after
 	LimitRateAfter int `json:"limit-rate-after"`
+
+	// Enables or disables buffering of responses from the proxied server.
+	// http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering
+	ProxyBuffering string `json:"proxy-buffering"`
 }

@@ -56,7 +56,7 @@ func parseFlags() (bool, *controller.Configuration, error) {
 			`Name of the ConfigMap that contains the custom configuration to use`)
 
 		publishSvc = flags.String("publish-service", "",
-			`Service fronting the ingress controllers. Takes the form namespace/name. 
+			`Service fronting the ingress controllers. Takes the form namespace/name.
 		The controller will set the endpoint records on the ingress objects to reflect those on the service.`)
 
 		tcpConfigMapName = flags.String("tcp-services-configmap", "",
@@ -96,9 +96,6 @@ func parseFlags() (bool, *controller.Configuration, error) {
 			`Force namespace isolation. This flag is required to avoid the reference of secrets or
 		configmaps located in a different namespace than the specified in the flag --watch-namespace.`)
 
-		disableNodeList = flags.Bool("disable-node-list", false,
-			`Disable querying nodes. If --force-namespace-isolation is true, this should also be set. (DEPRECATED)`)
-
 		updateStatusOnShutdown = flags.Bool("update-status-on-shutdown", true, `Indicates if the
 		ingress controller should update the Ingress status IP/hostname when the controller
 		is being stopped. Default is true`)
@@ -127,17 +124,30 @@ func parseFlags() (bool, *controller.Configuration, error) {
 			`Defines if the nginx ingress controller should check the secrets for missing intermediate CA certificates.
 		If the certificate contain issues chain issues is not possible to enable OCSP.
 		Default is true.`)
+
+		syncRateLimit = flags.Float32("sync-rate-limit", 0.3,
+			`Define the sync frequency upper limit`)
+
+		publishStatusAddress = flags.String("publish-status-address", "",
+			`User customized address to be set in the status of ingress resources. The controller will set the
+		endpoint records on the ingress using this address.`)
+
+		dynamicConfigurationEnabled = flags.Bool("enable-dynamic-configuration", false,
+			`When enabled controller will try to avoid Nginx reloads as much as possible by using Lua. Disabled by default.`)
 	)
 
 	flag.Set("logtostderr", "true")
 
 	flags.AddGoFlagSet(flag.CommandLine)
 	flags.Parse(os.Args)
-	flag.Set("logtostderr", "true")
 
 	// Workaround for this issue:
 	// https://github.com/kubernetes/kubernetes/issues/17162
 	flag.CommandLine.Parse([]string{})
+
+	pflag.VisitAll(func(flag *pflag.Flag) {
+		glog.V(2).Infof("FLAG: --%s=%q", flag.Name, flag.Value)
+	})
 
 	if *showVersion {
 		return true, nil, nil
@@ -180,36 +190,34 @@ func parseFlags() (bool, *controller.Configuration, error) {
 		return false, nil, fmt.Errorf("Port %v is already in use. Please check the flag --ssl-passtrough-proxy-port", *sslProxyPort)
 	}
 
-	// TODO: remove disableNodeList flag
-	if *disableNodeList {
-		glog.Warningf("%s is DEPRECATED and will be removed in a future version.", disableNodeList)
-	}
-
 	if !*enableSSLChainCompletion {
 		glog.Warningf("Check of SSL certificate chain is disabled (--enable-ssl-chain-completion=false)")
 	}
 
 	config := &controller.Configuration{
-		APIServerHost:            *apiserverHost,
-		KubeConfigFile:           *kubeConfigFile,
-		UpdateStatus:             *updateStatus,
-		ElectionID:               *electionID,
-		EnableProfiling:          *profiling,
-		EnableSSLPassthrough:     *enableSSLPassthrough,
-		EnableSSLChainCompletion: *enableSSLChainCompletion,
-		ResyncPeriod:             *resyncPeriod,
-		DefaultService:           *defaultSvc,
-		Namespace:                *watchNamespace,
-		ConfigMapName:            *configMap,
-		TCPConfigMapName:         *tcpConfigMapName,
-		UDPConfigMapName:         *udpConfigMapName,
-		DefaultSSLCertificate:    *defSSLCertificate,
-		DefaultHealthzURL:        *defHealthzURL,
-		PublishService:           *publishSvc,
-		ForceNamespaceIsolation:  *forceIsolation,
-		UpdateStatusOnShutdown:   *updateStatusOnShutdown,
-		SortBackends:             *sortBackends,
-		UseNodeInternalIP:        *useNodeInternalIP,
+		APIServerHost:               *apiserverHost,
+		KubeConfigFile:              *kubeConfigFile,
+		UpdateStatus:                *updateStatus,
+		ElectionID:                  *electionID,
+		EnableProfiling:             *profiling,
+		EnableSSLPassthrough:        *enableSSLPassthrough,
+		EnableSSLChainCompletion:    *enableSSLChainCompletion,
+		ResyncPeriod:                *resyncPeriod,
+		DefaultService:              *defaultSvc,
+		Namespace:                   *watchNamespace,
+		ConfigMapName:               *configMap,
+		TCPConfigMapName:            *tcpConfigMapName,
+		UDPConfigMapName:            *udpConfigMapName,
+		DefaultSSLCertificate:       *defSSLCertificate,
+		DefaultHealthzURL:           *defHealthzURL,
+		PublishService:              *publishSvc,
+		PublishStatusAddress:        *publishStatusAddress,
+		ForceNamespaceIsolation:     *forceIsolation,
+		UpdateStatusOnShutdown:      *updateStatusOnShutdown,
+		SortBackends:                *sortBackends,
+		UseNodeInternalIP:           *useNodeInternalIP,
+		SyncRateLimit:               *syncRateLimit,
+		DynamicConfigurationEnabled: *dynamicConfigurationEnabled,
 		ListenPorts: &ngx_config.ListenPorts{
 			Default:  *defServerPort,
 			Health:   *healthzPort,

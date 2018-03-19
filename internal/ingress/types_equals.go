@@ -152,6 +152,9 @@ func (b1 *Backend) Equal(b2 *Backend) bool {
 	if b1.UpstreamHashBy != b2.UpstreamHashBy {
 		return false
 	}
+	if b1.LoadBalancing != b2.LoadBalancing {
+		return false
+	}
 
 	if len(b1.Endpoints) != len(b2.Endpoints) {
 		return false
@@ -281,6 +284,9 @@ func (s1 *Server) Equal(s2 *Server) bool {
 	if len(s1.Locations) != len(s2.Locations) {
 		return false
 	}
+	if s1.SSLCiphers != s2.SSLCiphers {
+		return false
+	}
 
 	// Location are sorted
 	for idx, s1l := range s1.Locations {
@@ -365,6 +371,15 @@ func (l1 *Location) Equal(l2 *Location) bool {
 		return false
 	}
 	if l1.UpstreamVhost != l2.UpstreamVhost {
+		return false
+	}
+	if l1.XForwardedPrefix != l2.XForwardedPrefix {
+		return false
+	}
+	if !(&l1.Connection).Equal(&l2.Connection) {
+		return false
+	}
+	if !(&l1.Logs).Equal(&l2.Logs) {
 		return false
 	}
 

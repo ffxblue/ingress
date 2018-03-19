@@ -26,6 +26,9 @@ import (
 	"strings"
 	"testing"
 
+	"encoding/base64"
+	"fmt"
+
 	"k8s.io/ingress-nginx/internal/file"
 	"k8s.io/ingress-nginx/internal/ingress"
 	"k8s.io/ingress-nginx/internal/ingress/annotations/authreq"
@@ -34,66 +37,262 @@ import (
 )
 
 var (
-	// TODO: add tests for secure endpoints
+	// TODO: add tests for SSLPassthrough
 	tmplFuncTestcases = map[string]struct {
-		Path          string
-		Target        string
-		Location      string
-		ProxyPass     string
-		AddBaseURL    bool
-		BaseURLScheme string
-		Sticky        bool
+		Path                        string
+		Target                      string
+		Location                    string
+		ProxyPass                   string
+		AddBaseURL                  bool
+		BaseURLScheme               string
+		Sticky                      bool
+		XForwardedPrefix            bool
+		DynamicConfigurationEnabled bool
+		SecureBackend               bool
 	}{
-		"invalid redirect / to /": {"/", "/", "/", "proxy_pass http://upstream-name;", false, "", false},
-		"redirect / to /jenkins": {"/", "/jenkins", "~* /",
+		"when secure backend enabled": {
+			"/",
+			"/",
+			"/",
+			"proxy_pass https://upstream-name;",
+			false,
+			"",
+			false,
+			false,
+			false,
+			true},
+		"when secure backend and stickeness enabled": {
+			"/",
+			"/",
+			"/",
+			"proxy_pass https://sticky-upstream-name;",
+			false,
+			"",
+			true,
+			false,
+			false,
+			true},
+		"when secure backend and dynamic config enabled": {
+			"/",
+			"/",
+			"/",
+			"proxy_pass https://upstream_balancer;",
+			false,
+			"",
+			false,
+			false,
+			true,
+			true},
+		"when secure backend, stickeness and dynamic config enabled": {
+			"/",
+			"/",
+			"/",
+			"proxy_pass https://upstream_balancer;",
+			false,
+			"",
+			true,
+			false,
+			true,
+			true},
+		"invalid redirect / to / with dynamic config enabled": {
+			"/",
+			"/",
+			"/",
+			"proxy_pass http://upstream_balancer;",
+			false,
+			"",
+			false,
+			false,
+			true,
+			false},
+		"invalid redirect / to /": {
+			"/",
+			"/",
+			"/",
+			"proxy_pass http://upstream-name;",
+			false,
+			"",
+			false,
+			false,
+			false,
+			false},
+		"redirect / to /jenkins": {
+			"/",
+			"/jenkins",
+			"~* /",
 			`
 	    rewrite /(.*) /jenkins/$1 break;
 	    proxy_pass http://upstream-name;
-	    `, false, "", false},
-		"redirect /something to /": {"/something", "/", `~* ^/something\/?(?<baseuri>.*)`, `
+	    `,
+			false,
+			"",
+			false,
+			false,
+			false,
+			false},
+		"redirect /something to /": {
+			"/something",
+			"/",
+			`~* ^/something\/?(?<baseuri>.*)`,
+			`
 	    rewrite /something/(.*) /$1 break;
 	    rewrite /something / break;
 	    proxy_pass http://upstream-name;
-	    `, false, "", false},
-		"redirect /end-with-slash/ to /not-root": {"/end-with-slash/", "/not-root", "~* ^/end-with-slash/(?<baseuri>.*)", `
+	    `,
+			false,
+			"",
+			false,
+			false,
+			false,
+			false},
+		"redirect /end-with-slash/ to /not-root": {
+			"/end-with-slash/",
+			"/not-root",
+			"~* ^/end-with-slash/(?<baseuri>.*)",
+			`
 	    rewrite /end-with-slash/(.*) /not-root/$1 break;
 	    proxy_pass http://upstream-name;
-	    `, false, "", false},
-		"redirect /something-complex to /not-root": {"/something-complex", "/not-root", `~* ^/something-complex\/?(?<baseuri>.*)`, `
+	    `,
+			false,
+			"",
+			false,
+			false,
+			false,
+			false},
+		"redirect /something-complex to /not-root": {
+			"/something-complex",
+			"/not-root",
+			`~* ^/something-complex\/?(?<baseuri>.*)`,
+			`
 	    rewrite /something-complex/(.*) /not-root/$1 break;
 	    proxy_pass http://upstream-name;
-	    `, false, "", false},
-		"redirect / to /jenkins and rewrite": {"/", "/jenkins", "~* /", `
+	    `,
+			false,
+			"",
+			false,
+			false,
+			false,
+			false},
+		"redirect / to /jenkins and rewrite": {
+			"/",
+			"/jenkins",
+			"~* /",
+			`
 	    rewrite /(.*) /jenkins/$1 break;
 	    proxy_pass http://upstream-name;
 	    subs_filter '(<(?:H|h)(?:E|e)(?:A|a)(?:D|d)(?:[^">]|"[^"]*")*>)' '$1<base href="$scheme://$http_host/$baseuri">' ro;
-	    `, true, "", false},
-		"redirect /something to / and rewrite": {"/something", "/", `~* ^/something\/?(?<baseuri>.*)`, `
+	    `,
+			true,
+			"",
+			false,
+			false,
+			false,
+			false},
+		"redirect /something to / and rewrite": {
+			"/something",
+			"/",
+			`~* ^/something\/?(?<baseuri>.*)`,
+			`
 	    rewrite /something/(.*) /$1 break;
 	    rewrite /something / break;
 	    proxy_pass http://upstream-name;
 	    subs_filter '(<(?:H|h)(?:E|e)(?:A|a)(?:D|d)(?:[^">]|"[^"]*")*>)' '$1<base href="$scheme://$http_host/something/$baseuri">' ro;
-	    `, true, "", false},
-		"redirect /end-with-slash/ to /not-root and rewrite": {"/end-with-slash/", "/not-root", `~* ^/end-with-slash/(?<baseuri>.*)`, `
+	    `,
+			true,
+			"",
+			false,
+			false,
+			false,
+			false},
+		"redirect /end-with-slash/ to /not-root and rewrite": {
+			"/end-with-slash/",
+			"/not-root",
+			`~* ^/end-with-slash/(?<baseuri>.*)`,
+			`
 	    rewrite /end-with-slash/(.*) /not-root/$1 break;
 	    proxy_pass http://upstream-name;
 	    subs_filter '(<(?:H|h)(?:E|e)(?:A|a)(?:D|d)(?:[^">]|"[^"]*")*>)' '$1<base href="$scheme://$http_host/end-with-slash/$baseuri">' ro;
-	    `, true, "", false},
-		"redirect /something-complex to /not-root and rewrite": {"/something-complex", "/not-root", `~* ^/something-complex\/?(?<baseuri>.*)`, `
+	    `,
+			true,
+			"",
+			false,
+			false,
+			false,
+			false},
+		"redirect /something-complex to /not-root and rewrite": {
+			"/something-complex",
+			"/not-root",
+			`~* ^/something-complex\/?(?<baseuri>.*)`,
+			`
 	    rewrite /something-complex/(.*) /not-root/$1 break;
 	    proxy_pass http://upstream-name;
 	    subs_filter '(<(?:H|h)(?:E|e)(?:A|a)(?:D|d)(?:[^">]|"[^"]*")*>)' '$1<base href="$scheme://$http_host/something-complex/$baseuri">' ro;
-	    `, true, "", false},
-		"redirect /something to / and rewrite with specific scheme": {"/something", "/", `~* ^/something\/?(?<baseuri>.*)`, `
+	    `,
+			true,
+			"",
+			false,
+			false,
+			false,
+			false},
+		"redirect /something to / and rewrite with specific scheme": {
+			"/something",
+			"/",
+			`~* ^/something\/?(?<baseuri>.*)`,
+			`
 	    rewrite /something/(.*) /$1 break;
 	    rewrite /something / break;
 	    proxy_pass http://upstream-name;
 	    subs_filter '(<(?:H|h)(?:E|e)(?:A|a)(?:D|d)(?:[^">]|"[^"]*")*>)' '$1<base href="http://$http_host/something/$baseuri">' ro;
-	    `, true, "http", false},
-		"redirect / to /something with sticky enabled": {"/", "/something", `~* /`, `
+	    `,
+			true,
+			"http",
+			false,
+			false,
+			false,
+			false},
+		"redirect / to /something with sticky enabled": {
+			"/",
+			"/something",
+			`~* /`,
+			`
 	    rewrite /(.*) /something/$1 break;
 	    proxy_pass http://sticky-upstream-name;
-	    `, false, "http", true},
+	    `,
+			false,
+			"http",
+			true,
+			false,
+			false,
+			false},
+		"redirect / to /something with sticky and dynamic config enabled": {
+			"/",
+			"/something",
+			`~* /`,
+			`
+	    rewrite /(.*) /something/$1 break;
+	    proxy_pass http://upstream_balancer;
+	    `,
+			false,
+			"http",
+			true,
+			false,
+			true,
+			false},
+		"add the X-Forwarded-Prefix header": {
+			"/there",
+			"/something",
+			`~* ^/there\/?(?<baseuri>.*)`,
+			`
+	    rewrite /there/(.*) /something/$1 break;
+	    proxy_set_header X-Forwarded-Prefix "/there/";
+	    proxy_pass http://sticky-upstream-name;
+	    `,
+			false,
+			"http",
+			true,
+			true,
+			false,
+			false},
 	}
 )
 
@@ -136,32 +335,54 @@ func TestBuildProxyPass(t *testing.T) {
 
 	for k, tc := range tmplFuncTestcases {
 		loc := &ingress.Location{
-			Path:    tc.Path,
-			Rewrite: rewrite.Config{Target: tc.Target, AddBaseURL: tc.AddBaseURL, BaseURLScheme: tc.BaseURLScheme},
-			Backend: defaultBackend,
+			Path:             tc.Path,
+			Rewrite:          rewrite.Config{Target: tc.Target, AddBaseURL: tc.AddBaseURL, BaseURLScheme: tc.BaseURLScheme},
+			Backend:          defaultBackend,
+			XForwardedPrefix: tc.XForwardedPrefix,
 		}
 
-		backends := []*ingress.Backend{}
+		backend := &ingress.Backend{
+			Name:   defaultBackend,
+			Secure: tc.SecureBackend,
+		}
+
 		if tc.Sticky {
-			backends = []*ingress.Backend{
-				{
-					Name: defaultBackend,
-					SessionAffinity: ingress.SessionAffinityConfig{
-						AffinityType: "cookie",
-						CookieSessionAffinity: ingress.CookieSessionAffinity{
-							Locations: map[string][]string{
-								defaultHost: {tc.Path},
-							},
-						},
+			backend.SessionAffinity = ingress.SessionAffinityConfig{
+				AffinityType: "cookie",
+				CookieSessionAffinity: ingress.CookieSessionAffinity{
+					Locations: map[string][]string{
+						defaultHost: {tc.Path},
 					},
 				},
 			}
 		}
 
-		pp := buildProxyPass(defaultHost, backends, loc)
+		backends := []*ingress.Backend{backend}
+
+		pp := buildProxyPass(defaultHost, backends, loc, tc.DynamicConfigurationEnabled)
 		if !strings.EqualFold(tc.ProxyPass, pp) {
 			t.Errorf("%s: expected \n'%v'\nbut returned \n'%v'", k, tc.ProxyPass, pp)
 		}
+	}
+}
+
+func TestBuildAuthLocation(t *testing.T) {
+	authURL := "foo.com/auth"
+
+	loc := &ingress.Location{
+		ExternalAuth: authreq.Config{
+			URL: authURL,
+		},
+		Path: "/cat",
+	}
+
+	str := buildAuthLocation(loc)
+
+	encodedAuthURL := strings.Replace(base64.URLEncoding.EncodeToString([]byte(loc.Path)), "=", "", -1)
+	expected := fmt.Sprintf("/_external-auth-%v", encodedAuthURL)
+
+	if str != expected {
+		t.Errorf("Expected \n'%v'\nbut returned \n'%v'", expected, str)
 	}
 }
 
@@ -323,7 +544,14 @@ func TestBuildResolvers(t *testing.T) {
 	ipList := []net.IP{ipOne, ipTwo}
 
 	validResolver := "resolver 192.0.0.1 [2001:db8:1234::] valid=30s;"
-	resolver := buildResolvers(ipList)
+	resolver := buildResolvers(ipList, false)
+
+	if resolver != validResolver {
+		t.Errorf("Expected '%v' but returned '%v'", validResolver, resolver)
+	}
+
+	validResolver = "resolver 192.0.0.1 valid=30s ipv6=off;"
+	resolver = buildResolvers(ipList, true)
 
 	if resolver != validResolver {
 		t.Errorf("Expected '%v' but returned '%v'", validResolver, resolver)
@@ -414,6 +642,29 @@ func TestBuildAuthSignURL(t *testing.T) {
 		res := buildAuthSignURL(tc.Input)
 		if res != tc.Output {
 			t.Errorf("%s: called buildAuthSignURL('%s'); expected '%v' but returned '%v'", k, tc.Input, tc.Output, res)
+		}
+	}
+}
+
+func TestIsLocationInLocationList(t *testing.T) {
+
+	testCases := []struct {
+		location        *ingress.Location
+		rawLocationList string
+		expected        bool
+	}{
+		{&ingress.Location{Path: "/match"}, "/match", true},
+		{&ingress.Location{Path: "/match"}, ",/match", true},
+		{&ingress.Location{Path: "/match"}, "/dontmatch", false},
+		{&ingress.Location{Path: "/match"}, ",/dontmatch", false},
+		{&ingress.Location{Path: "/match"}, "/dontmatch,/match", true},
+		{&ingress.Location{Path: "/match"}, "/dontmatch,/dontmatcheither", false},
+	}
+
+	for _, testCase := range testCases {
+		result := isLocationInLocationList(testCase.location, testCase.rawLocationList)
+		if result != testCase.expected {
+			t.Errorf(" expected %v but return %v, path: '%s', rawLocation: '%s'", testCase.expected, result, testCase.location.Path, testCase.rawLocationList)
 		}
 	}
 }

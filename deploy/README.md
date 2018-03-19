@@ -8,7 +8,7 @@
 - [Custom Provider](#custom-provider)
   - [minikube](#minikube)
   - [AWS](#aws)
-  - [GCE - GKE](#gce-gke)
+  - [GCE - GKE](#gce---gke)
   - [Azure](#azure)
   - [Baremetal](#baremetal)
 - [Using Helm](#using-helm)
@@ -117,7 +117,7 @@ Patch the nginx ingress controller deployment to add the flag `--publish-service
 
 ```console
 kubectl patch deployment -n ingress-nginx nginx-ingress-controller --type='json' \
-  --patch="$(curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/patch-deployment.yaml)"
+  --patch="$(curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/publish-service-patch.yaml)"
 ```
 
 For L4:
@@ -159,7 +159,7 @@ Patch the nginx ingress controller deployment to add the flag `--publish-service
 
 ```console
 kubectl patch deployment -n ingress-nginx nginx-ingress-controller --type='json' \
-  --patch="$(curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/patch-deployment.yaml)"
+  --patch="$(curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/publish-service-patch.yaml)"
 ```
 
 ```console
@@ -187,7 +187,7 @@ Patch the nginx ingress controller deployment to add the flag `--publish-service
 
 ```console
 kubectl patch deployment -n ingress-nginx nginx-ingress-controller --type='json' \
-  --patch="$(curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/patch-deployment.yaml)"
+  --patch="$(curl https://raw.githubusercontent.com/kubernetes/ingress-nginx/master/deploy/publish-service-patch.yaml)"
 ```
 
 ```console
@@ -225,6 +225,12 @@ To install the chart with the release name `my-nginx`:
 
 ```console
 helm install stable/nginx-ingress --name my-nginx
+```
+
+If the kubernetes cluster has RBAC enabled, then run:
+
+```console
+helm install stable/nginx-ingress --name my-nginx --set rbac.create=true
 ```
 
 ## Verify installation

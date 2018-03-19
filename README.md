@@ -5,12 +5,12 @@ The GCE ingress controller was moved to [github.com/kubernetes/ingress-gce](http
 # NGINX Ingress Controller
 
 [![Build Status](https://travis-ci.org/kubernetes/ingress-nginx.svg?branch=master)](https://travis-ci.org/kubernetes/ingress-nginx)
-[![Coverage Status](https://coveralls.io/repos/github/kubernetes/ingress-nginx/badge.svg?branch=master)](https://coveralls.io/github/kubernetes/ingress-nginx?branch=master)
+[![Coverage Status](https://codecov.io/gh/kubernetes/ingress-nginx/branch/master/graph/badge.svg)](https://codecov.io/gh/kubernetes/ingress-nginx)
 [![Go Report Card](https://goreportcard.com/badge/github.com/kubernetes/ingress-nginx)](https://goreportcard.com/report/github.com/kubernetes/ingress-nginx)
 
 ## Description
 
-This repository contains the NGINX controller built around the [Kubernetes Ingress resource](http://kubernetes.io/docs/user-guide/ingress/) that uses [ConfigMap](https://kubernetes.io/docs/tasks/configure-pod-container/configmap/#understanding-configmaps) to store the NGINX configuration.
+This repository contains the NGINX controller built around the [Kubernetes Ingress resource](http://kubernetes.io/docs/user-guide/ingress/) that uses [ConfigMap](https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/#understanding-configmaps-and-pods) to store the NGINX configuration.
 
 Learn more about using Ingress on [k8s.io](http://kubernetes.io/docs/user-guide/ingress/)
 
@@ -150,11 +150,13 @@ The default value of this settings is `60 seconds`.
 
 A more adequate value to support websockets is a value higher than one hour (`3600`).
 
+**Important:** If the NGINX ingress controller is exposed with a service `type=LoadBalancer` make sure the protocol between the loadbalancer and NGINX is TCP.
+
 ### Optimizing TLS Time To First Byte (TTTFB)
 
 NGINX provides the configuration option [ssl_buffer_size](http://nginx.org/en/docs/http/ngx_http_ssl_module.html#ssl_buffer_size) to allow the optimization of the TLS record size.
 
-This improves the [Time To First Byte](https://www.igvita.com/2013/12/16/optimizing-nginx-tls-time-to-first-byte/) (TTTFB).
+This improves the [TLS Time To First Byte](https://www.igvita.com/2013/12/16/optimizing-nginx-tls-time-to-first-byte/) (TTTFB).
 The default value in the Ingress controller is `4k` (NGINX default is `16k`).
 
 ### Retries in non-idempotent methods

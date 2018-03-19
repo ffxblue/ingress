@@ -27,19 +27,12 @@ import (
 	restclient "k8s.io/client-go/rest"
 
 	"github.com/golang/glog"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
 
-const (
-	podName = "test-ingress-controller"
-)
-
-const (
-	MaxRetry = 200
-	NoRetry  = 1
-)
-
+// RequestScheme define a scheme used in a test request.
 type RequestScheme string
 
 // These are valid test request schemes.
@@ -61,7 +54,7 @@ type Framework struct {
 	Namespace *v1.Namespace
 
 	// To make sure that this framework cleans up after itself, no matter what,
-	// we install a Cleanup action before each test and clear it after.  If we
+	// we install a Cleanup action before each test and clear it after. If we
 	// should abort, the AfterSuite hook should run all Cleanup actions.
 	cleanupHandle CleanupActionHandle
 
@@ -173,6 +166,13 @@ func (f *Framework) WaitForNginxServer(name string, matcher func(cfg string) boo
 	return wait.PollImmediate(Poll, time.Minute*2, f.matchNginxConditions(name, matcher))
 }
 
+// WaitForNginxConfiguration waits until the nginx configuration contains a particular configuration
+func (f *Framework) WaitForNginxConfiguration(matcher func(cfg string) bool) error {
+	// initial wait to allow the update of the ingress controller
+	time.Sleep(5 * time.Second)
+	return wait.PollImmediate(Poll, time.Minute*2, f.matchNginxConditions("", matcher))
+}
+
 // NginxLogs returns the logs of the nginx ingress controller pod running
 func (f *Framework) NginxLogs() (string, error) {
 	l, err := f.KubeClientSet.CoreV1().Pods("ingress-nginx").List(metav1.ListOptions{
@@ -186,11 +186,15 @@ func (f *Framework) NginxLogs() (string, error) {
 		return "", fmt.Errorf("no nginx ingress controller pod is running")
 	}
 
-	if len(l.Items) != 1 {
-		return "", fmt.Errorf("unexpected number of nginx ingress controller pod is running (%v)", len(l.Items))
+	for _, pod := range l.Items {
+		if strings.HasPrefix(pod.GetName(), "nginx-ingress-controller") &&
+			len(pod.Status.ContainerStatuses) > 0 &&
+			pod.Status.ContainerStatuses[0].State.Running != nil {
+			return f.Logs(&pod)
+		}
 	}
 
-	return f.Logs(&l.Items[0])
+	return "", fmt.Errorf("no nginx ingress controller pod is running")
 }
 
 func (f *Framework) matchNginxConditions(name string, matcher func(cfg string) bool) wait.ConditionFunc {
@@ -206,12 +210,31 @@ func (f *Framework) matchNginxConditions(name string, matcher func(cfg string) b
 			return false, fmt.Errorf("no nginx ingress controller pod is running")
 		}
 
-		if len(l.Items) != 1 {
-			return false, fmt.Errorf("unexpected number of nginx ingress controller pod is running (%v)", len(l.Items))
+		var cmd string
+		if name == "" {
+			cmd = fmt.Sprintf("cat /etc/nginx/nginx.conf")
+		} else {
+			cmd = fmt.Sprintf("cat /etc/nginx/nginx.conf | awk '/## start server %v/,/## end server %v/'", name, name)
 		}
 
-		cmd := fmt.Sprintf("cat /etc/nginx/nginx.conf | awk '/## start server %v/,/## end server %v/'", name, name)
-		o, err := f.ExecCommand(&l.Items[0], cmd)
+		var pod *v1.Pod
+	Loop:
+		for _, p := range l.Items {
+			if strings.HasPrefix(p.GetName(), "nginx-ingress-controller") {
+				for _, cs := range p.Status.ContainerStatuses {
+					if cs.State.Running != nil && cs.Name == "nginx-ingress-controller" {
+						pod = &p
+						break Loop
+					}
+				}
+			}
+		}
+
+		if pod == nil {
+			return false, fmt.Errorf("no nginx ingress controller pod is running")
+		}
+
+		o, err := f.ExecCommand(pod, cmd)
 		if err != nil {
 			return false, err
 		}

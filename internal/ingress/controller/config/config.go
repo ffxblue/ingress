@@ -101,6 +101,10 @@ type Configuration struct {
 	// By default access logs go to /var/log/nginx/access.log
 	AccessLogPath string `json:"access-log-path,omitempty"`
 
+	// WorkerCpuAffinity bind nginx worker processes to CPUs this will improve response latency
+	// http://nginx.org/en/docs/ngx_core_module.html#worker_cpu_affinity
+	// By default this is disabled
+	WorkerCpuAffinity string `json:"worker-cpu-affinity,omitempty"`
 	// ErrorLogPath sets the path of the error logs
 	// http://nginx.org/en/docs/ngx_core_module.html#error_log
 	// By default error logs go to /var/log/nginx/error.log
@@ -139,6 +143,9 @@ type Configuration struct {
 	// DisableAccessLog disables the Access Log globally from NGINX ingress controller
 	//http://nginx.org/en/docs/http/ngx_http_log_module.html
 	DisableAccessLog bool `json:"disable-access-log,omitempty"`
+
+	// DisableIpv6DNS disables IPv6 for nginx resolver
+	DisableIpv6DNS bool `json:"disable-ipv6-dns"`
 
 	// DisableIpv6 disable listening on ipv6 address
 	DisableIpv6 bool `json:"disable-ipv6,omitempty"`
@@ -286,7 +293,7 @@ type Configuration struct {
 	SSLECDHCurve string `json:"ssl-ecdh-curve,omitempty"`
 
 	// The secret that contains Diffie-Hellman key to help with "Perfect Forward Secrecy"
-	// https://www.openssl.org/docs/manmaster/apps/dhparam.html
+	// https://wiki.openssl.org/index.php/Manual:Dhparam(1)
 	// https://wiki.mozilla.org/Security/Server_Side_TLS#DHE_handshake_and_dhparam
 	// http://nginx.org/en/docs/http/ngx_http_ssl_module.html#ssl_dhparam
 	SSLDHParam string `json:"ssl-dh-param,omitempty"`
@@ -332,6 +339,10 @@ type Configuration struct {
 	// Enables or disables the use of the nginx module that compresses responses using the "gzip" method
 	// http://nginx.org/en/docs/http/ngx_http_gzip_module.html
 	UseGzip bool `json:"use-gzip,omitempty"`
+
+	// Enables or disables the use of the nginx geoip module that creates variables with values depending on the client IP
+	// http://nginx.org/en/docs/http/ngx_http_geoip_module.html
+	UseGeoIP bool `json:"use-geoip,omitempty"`
 
 	// Enables or disables the use of the NGINX Brotli Module for compression
 	// https://github.com/google/ngx_brotli
@@ -388,6 +399,12 @@ type Configuration struct {
 	// http://nginx.org/en/docs/stream/ngx_stream_proxy_module.html#proxy_timeout
 	ProxyStreamTimeout string `json:"proxy-stream-timeout,omitempty"`
 
+	// Sets the number of datagrams expected from the proxied server in response
+	// to the client request if the UDP protocol is used.
+	// http://nginx.org/en/docs/stream/ngx_stream_proxy_module.html#proxy_responses
+	// Default: 1
+	ProxyStreamResponses int `json:"proxy-stream-responses,omitempty"`
+
 	// Sets the ipv4 addresses on which the server will accept requests.
 	BindAddressIpv4 []string `json:"bind-address-ipv4,omitempty"`
 
@@ -417,6 +434,25 @@ type Configuration struct {
 	// Default: nginx
 	ZipkinServiceName string `json:"zipkin-service-name"`
 
+	// JaegerCollectorHost specifies the host to use when uploading traces
+	JaegerCollectorHost string `json:"jaeger-collector-host"`
+
+	// JaegerCollectorPort specifies the port to use when uploading traces
+	JaegerCollectorPort int `json:"jaeger-collector-port"`
+
+	// JaegerServiceName specifies the service name to use for any traces created
+	// Default: nginx
+	JaegerServiceName string `json:"jaeger-service-name"`
+
+	// JaegerSamplerType specifies the sampler to be used when sampling traces.
+	// The available samplers are: const, probabilistic, ratelimiting, remote
+	// Default: const
+	JaegerSamplerType string `json:"jaeger-sampler-type"`
+
+	// JaegerSamplerParam specifies the argument to be passed to the sampler constructor
+	// Default: 1
+	JaegerSamplerParam string `json:"jaeger-sampler-param"`
+
 	// HTTPSnippet adds custom configuration to the http section of the nginx configuration
 	HTTPSnippet string `json:"http-snippet"`
 
@@ -425,6 +461,39 @@ type Configuration struct {
 
 	// LocationSnippet adds custom configuration to all the locations in the nginx configuration
 	LocationSnippet string `json:"location-snippet"`
+
+	// HTTPRedirectCode sets the HTTP status code to be used in redirects.
+	// Supported codes are 301,302,307 and 308
+	// Default: 308
+	HTTPRedirectCode int `json:"http-redirect-code"`
+
+	// ReusePort instructs NGINX to create an individual listening socket for
+	// each worker process (using the SO_REUSEPORT socket option), allowing a
+	// kernel to distribute incoming connections between worker processes
+	// Default: false
+	// Reason for the default: https://trac.nginx.org/nginx/ticket/1300
+	ReusePort bool `json:"reuse-port"`
+
+	// HideHeaders sets additional header that will not be passed from the upstream
+	// server to the client response
+	// Default: empty
+	HideHeaders []string `json:"hide-headers"`
+
+	// LimitReqStatusCode Sets the status code to return in response to rejected requests.
+	// http://nginx.org/en/docs/http/ngx_http_limit_req_module.html#limit_req_status
+	// Default: 503
+	LimitReqStatusCode int `json:"limit-req-status-code"`
+
+	// EnableSyslog enables the configuration for remote logging in NGINX
+	EnableSyslog bool `json:"enable-syslog"`
+	// SyslogHost FQDN or IP address where the logs should be sent
+	SyslogHost string `json:"syslog-host"`
+	// SyslogPort port
+	SyslogPort int `json:"syslog-port",omitempty`
+
+	// NoTLSRedirectLocations is a comma-separated list of locations
+	// that should not get redirected to TLS
+	NoTLSRedirectLocations string `json:"no-tls-redirect-locations"`
 }
 
 // NewDefault returns the default nginx configuration
@@ -435,6 +504,7 @@ func NewDefault() Configuration {
 	cfg := Configuration{
 		AllowBackendServerHeader:   false,
 		AccessLogPath:              "/var/log/nginx/access.log",
+		WorkerCpuAffinity:          "",
 		ErrorLogPath:               "/var/log/nginx/error.log",
 		BrotliLevel:                4,
 		BrotliTypes:                brotliTypes,
@@ -449,6 +519,7 @@ func NewDefault() Configuration {
 		ComputeFullForwardedFor:    false,
 		HTTP2MaxFieldSize:          "4k",
 		HTTP2MaxHeaderSize:         "16k",
+		HTTPRedirectCode:           308,
 		HSTS:                       true,
 		HSTSIncludeSubdomains:      true,
 		HSTSMaxAge:                 hstsMaxAge,
@@ -467,6 +538,7 @@ func NewDefault() Configuration {
 		ServerNameHashMaxSize:      1024,
 		ProxyHeadersHashMaxSize:    512,
 		ProxyHeadersHashBucketSize: 64,
+		ProxyStreamResponses:       1,
 		ShowServerTokens:           true,
 		SSLBufferSize:              sslBufferSize,
 		SSLCiphers:                 sslCiphers,
@@ -476,8 +548,9 @@ func NewDefault() Configuration {
 		SSLSessionCacheSize:        sslSessionCacheSize,
 		SSLSessionTickets:          true,
 		SSLSessionTimeout:          sslSessionTimeout,
-		EnableBrotli:               true,
+		EnableBrotli:               false,
 		UseGzip:                    true,
+		UseGeoIP:                   true,
 		WorkerProcesses:            strconv.Itoa(runtime.NumCPU()),
 		WorkerShutdownTimeout:      "10s",
 		LoadBalanceAlgorithm:       defaultLoadBalancerAlgorithm,
@@ -504,6 +577,7 @@ func NewDefault() Configuration {
 			SkipAccessLogURLs:     []string{},
 			LimitRate:             0,
 			LimitRateAfter:        0,
+			ProxyBuffering:        "off",
 		},
 		UpstreamKeepaliveConnections: 32,
 		LimitConnZoneVariable:        defaultLimitConnZoneVariable,
@@ -511,6 +585,13 @@ func NewDefault() Configuration {
 		BindAddressIpv6:              defBindAddress,
 		ZipkinCollectorPort:          9411,
 		ZipkinServiceName:            "nginx",
+		JaegerCollectorPort:          6831,
+		JaegerServiceName:            "nginx",
+		JaegerSamplerType:            "const",
+		JaegerSamplerParam:           "1",
+		LimitReqStatusCode:           503,
+		SyslogPort:                   514,
+		NoTLSRedirectLocations:       "/.well-known/acme-challenge",
 	}
 
 	if glog.V(5) {
@@ -533,23 +614,24 @@ func (cfg Configuration) BuildLogFormatUpstream() string {
 
 // TemplateConfig contains the nginx configuration to render the file nginx.conf
 type TemplateConfig struct {
-	ProxySetHeaders         map[string]string
-	AddHeaders              map[string]string
-	MaxOpenFiles            int
-	BacklogSize             int
-	Backends                []*ingress.Backend
-	PassthroughBackends     []*ingress.SSLPassthroughBackend
-	Servers                 []*ingress.Server
-	TCPBackends             []ingress.L4Service
-	UDPBackends             []ingress.L4Service
-	HealthzURI              string
-	CustomErrors            bool
-	Cfg                     Configuration
-	IsIPV6Enabled           bool
-	IsSSLPassthroughEnabled bool
-	RedirectServers         map[string]string
-	ListenPorts             *ListenPorts
-	PublishService          *apiv1.Service
+	ProxySetHeaders             map[string]string
+	AddHeaders                  map[string]string
+	MaxOpenFiles                int
+	BacklogSize                 int
+	Backends                    []*ingress.Backend
+	PassthroughBackends         []*ingress.SSLPassthroughBackend
+	Servers                     []*ingress.Server
+	TCPBackends                 []ingress.L4Service
+	UDPBackends                 []ingress.L4Service
+	HealthzURI                  string
+	CustomErrors                bool
+	Cfg                         Configuration
+	IsIPV6Enabled               bool
+	IsSSLPassthroughEnabled     bool
+	RedirectServers             map[string]string
+	ListenPorts                 *ListenPorts
+	PublishService              *apiv1.Service
+	DynamicConfigurationEnabled bool
 }
 
 // ListenPorts describe the ports required to run the

@@ -19,7 +19,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"net"
+	"math/rand"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -28,16 +28,15 @@ import (
 	"syscall"
 	"time"
 
-	proxyproto "github.com/armon/go-proxyproto"
 	"github.com/golang/glog"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
+	discovery "k8s.io/apimachinery/pkg/version"
 	"k8s.io/apiserver/pkg/server/healthz"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
 	"k8s.io/ingress-nginx/internal/file"
 	"k8s.io/ingress-nginx/internal/ingress/controller"
@@ -47,6 +46,8 @@ import (
 )
 
 func main() {
+	rand.Seed(time.Now().UnixNano())
+
 	fmt.Println(version.String())
 
 	showVersion, conf, err := parseFlags()
@@ -118,7 +119,7 @@ func main() {
 
 	// create the default SSL certificate (dummy)
 	defCert, defKey := ssl.GetFakeSSLCert()
-	c, err := ssl.AddOrUpdateCertAndKey(fakeCertificate, defCert, defKey, []byte{})
+	c, err := ssl.AddOrUpdateCertAndKey(fakeCertificate, defCert, defKey, []byte{}, fs)
 	if err != nil {
 		glog.Fatalf("Error generating self signed certificate: %v", err)
 	}
@@ -129,10 +130,6 @@ func main() {
 	conf.Client = kubeClient
 
 	ngx := controller.NewNGINXController(conf, fs)
-
-	if conf.EnableSSLPassthrough {
-		setupSSLProxy(conf.ListenPorts.HTTPS, conf.ListenPorts.SSLProxy, ngx)
-	}
 
 	go handleSigterm(ngx, func(code int) {
 		os.Exit(code)
@@ -165,49 +162,6 @@ func handleSigterm(ngx *controller.NGINXController, exit exiter) {
 	exit(exitCode)
 }
 
-func setupSSLProxy(sslPort, proxyPort int, n *controller.NGINXController) {
-	glog.Info("starting TLS proxy for SSL passthrough")
-	n.Proxy = &controller.TCPProxy{
-		Default: &controller.TCPServer{
-			Hostname:      "localhost",
-			IP:            "127.0.0.1",
-			Port:          proxyPort,
-			ProxyProtocol: true,
-		},
-	}
-
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%v", sslPort))
-	if err != nil {
-		glog.Fatalf("%v", err)
-	}
-
-	proxyList := &proxyproto.Listener{Listener: listener}
-
-	// start goroutine that accepts tcp connections in port 443
-	go func() {
-		for {
-			var conn net.Conn
-			var err error
-
-			if n.IsProxyProtocolEnabled {
-				// we need to wrap the listener in order to decode
-				// proxy protocol before handling the connection
-				conn, err = proxyList.Accept()
-			} else {
-				conn, err = listener.Accept()
-			}
-
-			if err != nil {
-				glog.Warningf("unexpected error accepting tcp connection: %v", err)
-				continue
-			}
-
-			glog.V(3).Infof("remote address %s to local %s", conn.RemoteAddr(), conn.LocalAddr())
-			go n.Proxy.Handle(conn)
-		}
-	}()
-}
-
 // createApiserverClient creates new Kubernetes Apiserver client. When kubeconfig or apiserverHost param is empty
 // the function assumes that it is running inside a Kubernetes cluster and attempts to
 // discover the Apiserver. Otherwise, it connects to the Apiserver specified.
@@ -215,7 +169,7 @@ func setupSSLProxy(sslPort, proxyPort int, n *controller.NGINXController) {
 // apiserverHost param is in the format of protocol://address:port/pathPrefix, e.g.http://localhost:8001.
 // kubeConfig location of kubeconfig file
 func createApiserverClient(apiserverHost string, kubeConfig string) (*kubernetes.Clientset, error) {
-	cfg, err := buildConfigFromFlags(apiserverHost, kubeConfig)
+	cfg, err := clientcmd.BuildConfigFromFlags(apiserverHost, kubeConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -231,9 +185,41 @@ func createApiserverClient(apiserverHost string, kubeConfig string) (*kubernetes
 		return nil, err
 	}
 
-	v, err := client.Discovery().ServerVersion()
+	var v *discovery.Info
+
+	// In some environments is possible the client cannot connect the API server in the first request
+	// https://github.com/kubernetes/ingress-nginx/issues/1968
+	defaultRetry := wait.Backoff{
+		Steps:    10,
+		Duration: 1 * time.Second,
+		Factor:   1.5,
+		Jitter:   0.1,
+	}
+
+	var lastErr error
+	retries := 0
+	glog.V(2).Info("trying to discover Kubernetes version")
+	err = wait.ExponentialBackoff(defaultRetry, func() (bool, error) {
+		v, err = client.Discovery().ServerVersion()
+
+		if err == nil {
+			return true, nil
+		}
+
+		lastErr = err
+		glog.V(2).Infof("unexpected error discovering Kubernetes version (attempt %v): %v", err, retries)
+		retries++
+		return false, nil
+	})
+
+	// err is not null only if there was a timeout in the exponential backoff (ErrWaitTimeout)
 	if err != nil {
-		return nil, err
+		return nil, lastErr
+	}
+
+	// this should not happen, warn the user
+	if retries > 0 {
+		glog.Warningf("it was required to retry %v times before reaching the API server", retries)
 	}
 
 	glog.Infof("Running in Kubernetes Cluster version v%v.%v (%v) - git (%v) commit %v - platform %v",
@@ -253,30 +239,9 @@ const (
 	fakeCertificate = "default-fake-certificate"
 )
 
-// buildConfigFromFlags builds REST config based on master URL and kubeconfig path.
-// If both of them are empty then in cluster config is used.
-func buildConfigFromFlags(masterURL, kubeconfigPath string) (*rest.Config, error) {
-	if kubeconfigPath == "" && masterURL == "" {
-		kubeconfig, err := rest.InClusterConfig()
-		if err != nil {
-			return nil, err
-		}
-
-		return kubeconfig, nil
-	}
-
-	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
-		&clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfigPath},
-		&clientcmd.ConfigOverrides{
-			ClusterInfo: clientcmdapi.Cluster{
-				Server: masterURL,
-			},
-		}).ClientConfig()
-}
-
 /**
  * Handles fatal init error that prevents server from doing any work. Prints verbose error
- * message and quits the server.
+ * messages and quits the server.
  */
 func handleFatalInitError(err error) {
 	glog.Fatalf("Error while initializing connection to Kubernetes apiserver. "+
@@ -322,10 +287,12 @@ func registerHandlers(enableProfiling bool, port int, ic *controller.NGINXContro
 	}
 
 	server := &http.Server{
-		Addr:         fmt.Sprintf(":%v", port),
-		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		Addr:              fmt.Sprintf(":%v", port),
+		Handler:           mux,
+		ReadTimeout:       10 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      300 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 	glog.Fatal(server.ListenAndServe())
 }

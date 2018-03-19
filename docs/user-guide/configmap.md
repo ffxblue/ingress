@@ -13,6 +13,14 @@ data:
   ssl-protocols: SSLv2
 ```
 
+**IMPORTANT:**
+
+The key and values in a ConfigMap can only be strings.
+This means that we want a value with boolean values we need to quote the values, like "true" or "false".
+Same for numbers, like "100".
+
+"Slice" types (defined below as `[]string` or `[]int` can be provided as a comma-delimited string.
+
 ## Configuration options
 
 The following table shows a configuration option's name, type, and the default value:
@@ -20,35 +28,37 @@ The following table shows a configuration option's name, type, and the default v
 |name|type|default|
 |:---|:---|:------|
 |[add-headers](#add-headers)|string|""|
-|[allow-backend-server-header](#allow-backend-server-header)|bool|false|
+|[allow-backend-server-header](#allow-backend-server-header)|bool|"false"|
+|[hide-headers](#hide-headers)|string array|empty|
 |[access-log-path](#access-log-path)|string|"/var/log/nginx/access.log"|
 |[error-log-path](#error-log-path)|string|"/var/log/nginx/error.log"|
-|[enable-dynamic-tls-records](#enable-dynamic-tls-records)|bool|true|
-|[enable-modsecurity](#enable-modsecurity)|bool|false|
-|[enable-owasp-modsecurity-crs](#enable-owasp-modsecurity-crs)|bool|false|
+|[enable-dynamic-tls-records](#enable-dynamic-tls-records)|bool|"true"|
+|[enable-modsecurity](#enable-modsecurity)|bool|"false"|
+|[enable-owasp-modsecurity-crs](#enable-owasp-modsecurity-crs)|bool|"false"|
 |[client-header-buffer-size](#client-header-buffer-size)|string|"1k"|
 |[client-header-timeout](#client-header-timeout)|int|60|
 |[client-body-buffer-size](#client-body-buffer-size)|string|"8k"|
 |[client-body-timeout](#client-body-timeout)|int|60|
 |[disable-access-log](#disable-access-log)|bool|false|
 |[disable-ipv6](#disable-ipv6)|bool|false|
+|[disable-ipv6-dns](#disable-ipv6-dns)|bool|false|
 |[enable-underscores-in-headers](#enable-underscores-in-headers)|bool|false|
 |[ignore-invalid-headers](#ignore-invalid-headers)|bool|true|
 |[enable-vts-status](#enable-vts-status)|bool|false|
 |[vts-status-zone-size](#vts-status-zone-size)|string|"10m"|
 |[vts-default-filter-key](#vts-default-filter-key)|string|"$geoip_country_code country::*"|
-|[retry-non-idempotent](#retry-non-idempotent)|bool|false|
+|[retry-non-idempotent](#retry-non-idempotent)|bool|"false"|
 |[error-log-level](#error-log-level)|string|"notice"|
 |[http2-max-field-size](#http2-max-field-size)|string|"4k"|
 |[http2-max-header-size](#http2-max-header-size)|string|"16k"|
-|[hsts](#hsts)|bool|true|
-|[hsts-include-subdomains](#hsts-include-subdomains)|bool|true|
+|[hsts](#hsts)|bool|"true"|
+|[hsts-include-subdomains](#hsts-include-subdomains)|bool|"true"|
 |[hsts-max-age](#hsts-max-age)|string|"15724800"|
-|[hsts-preload](#hsts-preload)|bool|false|
+|[hsts-preload](#hsts-preload)|bool|"false"|
 |[keep-alive](#keep-alive)|int|75|
 |[keep-alive-requests](#keep-alive-requests)|int|100|
 |[large-client-header-buffers](#large-client-header-buffers)|string|"4 8k"|
-|[log-format-escape-json](#log-format-escape-json)|bool|false|
+|[log-format-escape-json](#log-format-escape-json)|bool|"false"|
 |[log-format-upstream](#log-format-upstream)|string|`%v - [$the_real_ip] - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent" $request_length $request_time [$proxy_upstream_name] $upstream_addr $upstream_response_length $upstream_response_time $upstream_status`|
 |[log-format-stream](#log-format-stream)|string|`[$time_local] $protocol $status $bytes_sent $bytes_received $session_time`|
 |[max-worker-connections](#max-worker-connections)|int|16384|
@@ -59,25 +69,27 @@ The following table shows a configuration option's name, type, and the default v
 |[server-name-hash-bucket-size](#server-name-hash-bucket-size)|int|`<size of the processor’s cache line>`
 |[proxy-headers-hash-max-size](#proxy-headers-hash-max-size)|int|512|
 |[proxy-headers-hash-bucket-size](#proxy-headers-hash-bucket-size)|int|64|
-|[server-tokens](#server-tokens)|bool|true|
+|[server-tokens](#server-tokens)|bool|"true"|
 |[ssl-ciphers](#ssl-ciphers)|string|"ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA256"|
 |[ssl-ecdh-curve](#ssl-ecdh-curve)|string|"auto"|
 |[ssl-dh-param](#ssl-dh-param)|string|""|
 |[ssl-protocols](#ssl-protocols)|string|"TLSv1.2"|
-|[ssl-session-cache](#ssl-session-cache)|bool|true|
+|[ssl-session-cache](#ssl-session-cache)|bool|"true"|
 |[ssl-session-cache-size](#ssl-session-cache-size)|string|"10m"|
-|[ssl-session-tickets](#ssl-session-tickets)|bool|true|
+|[ssl-session-tickets](#ssl-session-tickets)|bool|"true"|
 |[ssl-session-ticket-key](#ssl-session-ticket-key)|string|`<Randomly Generated>`
 |[ssl-session-timeout](#ssl-session-timeout)|string|"10m"|
 |[ssl-buffer-size](#ssl-buffer-size)|string|"4k"|
-|[use-proxy-protocol](#use-proxy-protocol)|bool|false|
-|[use-gzip](#use-gzip)|bool|true|
-|[enable-brotli](#enable-brotli)|bool|true|
+|[use-proxy-protocol](#use-proxy-protocol)|bool|"false"|
+|[use-gzip](#use-gzip)|bool|"true"|
+|[use-geoip](#use-geoip)|bool|"true"|
+|[enable-brotli](#enable-brotli)|bool|"true"|
 |[brotli-level](#brotli-level)|int|4|
 |[brotli-types](#brotli-types)|string|"application/xml+rss application/atom+xml application/javascript application/x-javascript application/json application/rss+xml application/vnd.ms-fontobject application/x-font-ttf application/x-web-app-manifest+json application/xhtml+xml application/xml font/opentype image/svg+xml image/x-icon text/css text/plain text/x-component"|
-|[use-http2](#use-http2)|bool|true|
+|[use-http2](#use-http2)|bool|"true"|
 |[gzip-types](#gzip-types)|string|"application/atom+xml application/javascript application/x-javascript application/json application/rss+xml application/vnd.ms-fontobject application/x-font-ttf application/x-web-app-manifest+json application/xhtml+xml application/xml font/opentype image/svg+xml image/x-icon text/css text/plain text/x-component"|
 |[worker-processes](#worker-processes)|string|`<Number of CPUs>`|
+|[worker-cpu-affinity](#worker-cpu-affinity)|string|""|
 |[worker-shutdown-timeout](#worker-shutdown-timeout)|string|"10s"|
 |[load-balance](#load-balance)|string|"least_conn"|
 |[variables-hash-bucket-size](#variables-hash-bucket-size)|int|128|
@@ -85,14 +97,20 @@ The following table shows a configuration option's name, type, and the default v
 |[upstream-keepalive-connections](#upstream-keepalive-connections)|int|32|
 |[limit-conn-zone-variable](#limit-conn-zone-variable)|string|"$binary_remote_addr"|
 |[proxy-stream-timeout](#proxy-stream-timeout)|string|"600s"|
+|[proxy-stream-responses](#proxy-stream-responses)|int|1|
 |[bind-address-ipv4](#bind-address-ipv4)|[]string|""|
 |[bind-address-ipv6](#bind-address-ipv6)|[]string|""|
 |[forwarded-for-header](#forwarded-for-header)|string|"X-Forwarded-For"|
-|[compute-full-forwarded-for](#compute-full-forwarded-for)|bool|false|
-|[enable-opentracing](#enable-opentracing)|bool|false|
+|[compute-full-forwarded-for](#compute-full-forwarded-for)|bool|"false"|
+|[enable-opentracing](#enable-opentracing)|bool|"false"|
 |[zipkin-collector-host](#zipkin-collector-host)|string|""|
 |[zipkin-collector-port](#zipkin-collector-port)|int|9411|
 |[zipkin-service-name](#zipkin-service-name)|string|"nginx"|
+|[jaeger-collector-host](#jaeger-collector-host)|string|""|
+|[jaeger-collector-port](#jaeger-collector-port)|int|6831|
+|[jaeger-service-name](#jaeger-service-name)|string|"nginx"|
+|[jaeger-sampler-type](#jaeger-sampler-type)|string|"const"|
+|[jaeger-sampler-param](#jaeger-sampler-param)|string|"1"|
 |[http-snippet](#http-snippet)|string|""|
 |[server-snippet](#server-snippet)|string|""|
 |[location-snippet](#location-snippet)|string|""|
@@ -107,30 +125,43 @@ The following table shows a configuration option's name, type, and the default v
 |[proxy-next-upstream](#proxy-next-upstream)|string|"error timeout invalid_header http_502 http_503 http_504"|
 |[proxy-redirect-from](#proxy-redirect-from)|string|"off"|
 |[proxy-request-buffering](#proxy-request-buffering)|string|"on"|
-|[ssl-redirect](#ssl-redirect)|bool|true|
+|[ssl-redirect](#ssl-redirect)|bool|"true"|
 |[whitelist-source-range](#whitelist-source-range)|[]string|[]string{}|
 |[skip-access-log-urls](#skip-access-log-urls)|[]string|[]string{}|
 |[limit-rate](#limit-rate)|int|0|
 |[limit-rate-after](#limit-rate-after)|int|0|
+|[http-redirect-code](#http-redirect-code)|int|308|
+|[proxy-buffering](#proxy-buffering)|string|"off"|
+|[limit-req-status-code](#limit-req-status-code)|int|503|
+|[no-tls-redirect-locations](#no-tls-redirect-locations)|string|"/.well-known/acme-challenge"|
 
 ## add-headers
 
-Sets custom headers from a configmap before sending traffic to the client. See [proxy-set-headers](#proxy-set-headers). [example](https://github.com/kubernetes/ingress-nginx/tree/master/docs/examples/customization/custom-headers)
+Sets custom headers from named configmap before sending traffic to the client. See [proxy-set-headers](#proxy-set-headers). [example](https://github.com/kubernetes/ingress-nginx/tree/master/docs/examples/customization/custom-headers)
 
 ## allow-backend-server-header
 
-AllowBackendServerHeader enables the return of the header Server from the backend instead of the generic nginx string. By default this is disabled.
+Enables the return of the header Server from the backend instead of the generic nginx string. By default this is disabled.
+
+## hide-headers
+
+Sets additional header that will not be passed from the upstream server to the client response.
+Default: empty
 
 _References:_
 - http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_hide_header
 
 ## access-log-path
 
-Access log path. Goes to '/var/log/nginx/access.log' by default.
+Access log path. Goes to `/var/log/nginx/access.log` by default.
+
+**Note:** the file `/var/log/nginx/access.log` is a symlink to `/dev/stdout`
 
 ## error-log-path
 
-Error log path. Goes to '/var/log/nginx/error.log' by default.
+Error log path. Goes to `/var/log/nginx/error.log` by default.
+
+**Note:** the file `/var/log/nginx/error.log` is a symlink to `/dev/stderr`
 
 _References:_
 - http://nginx.org/en/docs/ngx_core_module.html#error_log
@@ -177,7 +208,7 @@ _References:_
 
 ## disable-access-log
 
-Disables the Access Log from the entire Ingress Controller. This is 'false' by default.
+Disables the Access Log from the entire Ingress Controller. This is '"false"' by default.
 
 _References:_
 - http://nginx.org/en/docs/http/ngx_http_log_module.html#access_log
@@ -185,6 +216,10 @@ _References:_
 ## disable-ipv6
 
 Disable listening on IPV6. By default this is disabled.
+
+## disable-ipv6-dns
+
+Disable IPV6 for nginx DNS resolver. By default this is disabled.
 
 ## enable-underscores-in-headers
 
@@ -283,7 +318,7 @@ _References:_
 
 ## log-format-escape-json
 
-Sets if the escape parameter allows JSON (true) or default characters escaping in variables (false) Sets the nginx [log format](http://nginx.org/en/docs/http/ngx_http_log_module.html#log_format).
+Sets if the escape parameter allows JSON ("true") or default characters escaping in variables ("false") Sets the nginx [log format](http://nginx.org/en/docs/http/ngx_http_log_module.html#log_format).
 
 ## log-format-upstream
 
@@ -320,7 +355,7 @@ If use-proxy-protocol is enabled, proxy-real-ip-cidr defines the default the IP/
 
 ## proxy-set-headers
 
-Sets custom headers from a configmap before sending traffic to backends. See [example](https://github.com/kubernetes/ingress-nginx/tree/master/docs/examples/customization/custom-headers)
+Sets custom headers from named configmap before sending traffic to backends. The value format is namespace/name.  See [example](https://github.com/kubernetes/ingress-nginx/tree/master/docs/examples/customization/custom-headers)
 
 ## server-name-hash-max-size
 
@@ -380,7 +415,7 @@ _References:_
 Sets the name of the secret that contains Diffie-Hellman key to help with "Perfect Forward Secrecy".
 
 _References:_
-- https://www.openssl.org/docs/manmaster/apps/dhparam.html
+- https://wiki.openssl.org/index.php/Manual:Dhparam(1)
 - https://wiki.mozilla.org/Security/Server_Side_TLS#DHE_handshake_and_dhparam
 - http://nginx.org/en/docs/http/ngx_http_ssl_module.html#ssl_dhparam
 
@@ -428,10 +463,17 @@ Enables or disables the [PROXY protocol](https://www.nginx.com/resources/admin-g
 Enables or disables compression of HTTP responses using the ["gzip" module](http://nginx.org/en/docs/http/ngx_http_gzip_module.html).
 The default mime type list to compress is: `application/atom+xml application/javascript application/x-javascript application/json application/rss+xml application/vnd.ms-fontobject application/x-font-ttf application/x-web-app-manifest+json application/xhtml+xml application/xml font/opentype image/svg+xml image/x-icon text/css text/plain text/x-component`.
 
+## use-geoip
+
+Enables or disables ["geoip" module](http://nginx.org/en/docs/http/ngx_http_geoip_module.html) that creates variables with values depending on the client IP address, using the precompiled MaxMind databases.
+The default value is true.
+
 ## enable-brotli
 
 Enables or disables compression of HTTP responses using the ["brotli" module](https://github.com/google/ngx_brotli).
-The default mime type list to compress is: `application/xml+rss application/atom+xml application/javascript application/x-javascript application/json application/rss+xml application/vnd.ms-fontobject application/x-font-ttf application/x-web-app-manifest+json application/xhtml+xml application/xml font/opentype image/svg+xml image/x-icon text/css text/plain text/x-component`. This is *enabled* by default.
+The default mime type list to compress is: `application/xml+rss application/atom+xml application/javascript application/x-javascript application/json application/rss+xml application/vnd.ms-fontobject application/x-font-ttf application/x-web-app-manifest+json application/xhtml+xml application/xml font/opentype image/svg+xml image/x-icon text/css text/plain text/x-component`. This is *disabled* by default.
+
+*Note:* Brotli does not works in Safari < 11 https://caniuse.com/#feat=brotli
 
 ## brotli-level
 
@@ -454,6 +496,15 @@ Sets the MIME types in addition to "text/html" to compress. The special value "\
 
 Sets the number of [worker processes](http://nginx.org/en/docs/ngx_core_module.html#worker_processes).
 The default of "auto" means number of available CPU cores.
+
+## worker-cpu-affinity
+
+Binds worker processes to the sets of CPUs. [worker_cpu_affinity](http://nginx.org/en/docs/ngx_core_module.html#worker_cpu_affinity).
+By default worker processes are not bound to any specific CPUs. The value can be:
+
+- "": empty string indicate no affinity is applied.
+- cpumask: e.g. `0001 0010 0100 1000` to bind processes to specific cpus.
+- auto: binding worker processes automatically to available CPUs.
 
 ## worker-shutdown-timeout
 
@@ -506,6 +557,13 @@ Sets the timeout between two successive read or write operations on client or pr
 _References:_
 - http://nginx.org/en/docs/stream/ngx_stream_proxy_module.html#proxy_timeout
 
+## proxy-stream-responses
+
+Sets the number of datagrams expected from the proxied server in response to the client request if the UDP protocol is used.
+
+_References:_
+- http://nginx.org/en/docs/stream/ngx_stream_proxy_module.html#proxy_responses
+
 ## bind-address-ipv4
 
 Sets the addresses on which the server will accept requests instead of *. It should be noted that these addresses must exist in the runtime environment or the controller will crash loop.
@@ -540,6 +598,27 @@ Specifies the port to use when uploading traces. Default: 9411
 ## zipkin-service-name
 
 Specifies the service name to use for any traces created. Default: nginx
+
+## jaeger-collector-host
+
+Specifies the host to use when uploading traces. It must be a valid URL.
+
+## jaeger-collector-port
+
+Specifies the port to use when uploading traces. Default: 6831
+
+## jaeger-service-name
+
+Specifies the service name to use for any traces created. Default: nginx
+
+## jaeger-sampler-type
+
+Specifies the sampler to be used when sampling traces. The available samplers are: const, probabilistic, ratelimiting, remote. Default const.
+
+## jaeger-sampler-param
+
+Specifies the argument to be passed to the sampler constructor. Must be a number.
+For const this should be 0 to never sample and 1 to always sample. Default: 1
 
 ## http-snippet
 
@@ -635,3 +714,26 @@ Sets the initial amount after which the further transmission of a response to a 
 
 _References:_
 - http://nginx.org/en/docs/http/ngx_http_core_module.html#limit_rate_after
+
+## http-redirect-code
+
+Sets the HTTP status code to be used in redirects.
+Supported codes are [301](https://developer.mozilla.org/es/docs/Web/HTTP/Status/301),[302](https://developer.mozilla.org/es/docs/Web/HTTP/Status/302),[307](https://developer.mozilla.org/es/docs/Web/HTTP/Status/307) and [308](https://developer.mozilla.org/es/docs/Web/HTTP/Status/308)
+Default code is 308.
+
+Why the default code is 308?
+
+[RFC 7238](https://tools.ietf.org/html/rfc7238) was created to define the 308 (Permanent Redirect) status code that is similar to 301 (Moved Permanently) but it keeps the payload in the redirect. This is important if the we send a redirect in methods like POST.
+
+## proxy-buffering
+
+Enables or disables [buffering of responses from the proxied server](http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_buffering).
+
+## limit-req-status-code
+
+Sets the [status code to return in response to rejected requests](http://nginx.org/en/docs/http/ngx_http_limit_req_module.html#limit_req_status).Default: 503
+
+## no-tls-redirect-locations
+
+A comma-separated list of locations on which http requests will never get redirected to their https counterpart.
+Default: "/.well-known/acme-challenge"

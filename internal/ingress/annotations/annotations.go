@@ -19,6 +19,7 @@ package annotations
 import (
 	"github.com/golang/glog"
 	"github.com/imdario/mergo"
+	"k8s.io/ingress-nginx/internal/ingress/annotations/sslcipher"
 
 	extensions "k8s.io/api/extensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,10 +29,13 @@ import (
 	"k8s.io/ingress-nginx/internal/ingress/annotations/authreq"
 	"k8s.io/ingress-nginx/internal/ingress/annotations/authtls"
 	"k8s.io/ingress-nginx/internal/ingress/annotations/clientbodybuffersize"
+	"k8s.io/ingress-nginx/internal/ingress/annotations/connection"
 	"k8s.io/ingress-nginx/internal/ingress/annotations/cors"
 	"k8s.io/ingress-nginx/internal/ingress/annotations/defaultbackend"
 	"k8s.io/ingress-nginx/internal/ingress/annotations/healthcheck"
 	"k8s.io/ingress-nginx/internal/ingress/annotations/ipwhitelist"
+	"k8s.io/ingress-nginx/internal/ingress/annotations/loadbalancing"
+	"k8s.io/ingress-nginx/internal/ingress/annotations/log"
 	"k8s.io/ingress-nginx/internal/ingress/annotations/parser"
 	"k8s.io/ingress-nginx/internal/ingress/annotations/portinredirect"
 	"k8s.io/ingress-nginx/internal/ingress/annotations/proxy"
@@ -47,6 +51,7 @@ import (
 	"k8s.io/ingress-nginx/internal/ingress/annotations/upstreamhashby"
 	"k8s.io/ingress-nginx/internal/ingress/annotations/upstreamvhost"
 	"k8s.io/ingress-nginx/internal/ingress/annotations/vtsfilterkey"
+	"k8s.io/ingress-nginx/internal/ingress/annotations/xforwardedprefix"
 	"k8s.io/ingress-nginx/internal/ingress/errors"
 	"k8s.io/ingress-nginx/internal/ingress/resolver"
 )
@@ -62,6 +67,7 @@ type Ingress struct {
 	CertificateAuth      authtls.Config
 	ClientBodyBufferSize string
 	ConfigurationSnippet string
+	Connection           connection.Config
 	CorsConfig           cors.Config
 	DefaultBackend       string
 	Denied               error
@@ -78,9 +84,13 @@ type Ingress struct {
 	SSLPassthrough       bool
 	UsePortInRedirects   bool
 	UpstreamHashBy       string
+	LoadBalancing        string
 	UpstreamVhost        string
 	VtsFilterKey         string
 	Whitelist            ipwhitelist.SourceRange
+	XForwardedPrefix     bool
+	SSLCiphers           string
+	Logs                 log.Config
 }
 
 // Extractor defines the annotation parsers to be used in the extraction of annotations
@@ -97,6 +107,7 @@ func NewAnnotationExtractor(cfg resolver.Resolver) Extractor {
 			"CertificateAuth":      authtls.NewParser(cfg),
 			"ClientBodyBufferSize": clientbodybuffersize.NewParser(cfg),
 			"ConfigurationSnippet": snippet.NewParser(cfg),
+			"Connection":           connection.NewParser(cfg),
 			"CorsConfig":           cors.NewParser(cfg),
 			"DefaultBackend":       defaultbackend.NewParser(cfg),
 			"ExternalAuth":         authreq.NewParser(cfg),
@@ -112,9 +123,13 @@ func NewAnnotationExtractor(cfg resolver.Resolver) Extractor {
 			"SSLPassthrough":       sslpassthrough.NewParser(cfg),
 			"UsePortInRedirects":   portinredirect.NewParser(cfg),
 			"UpstreamHashBy":       upstreamhashby.NewParser(cfg),
+			"LoadBalancing":        loadbalancing.NewParser(cfg),
 			"UpstreamVhost":        upstreamvhost.NewParser(cfg),
 			"VtsFilterKey":         vtsfilterkey.NewParser(cfg),
 			"Whitelist":            ipwhitelist.NewParser(cfg),
+			"XForwardedPrefix":     xforwardedprefix.NewParser(cfg),
+			"SSLCiphers":           sslcipher.NewParser(cfg),
+			"Logs":                 log.NewParser(cfg),
 		},
 	}
 }
@@ -136,6 +151,14 @@ func (e Extractor) Extract(ing *extensions.Ingress) *Ingress {
 
 			if !errors.IsLocationDenied(err) {
 				continue
+			}
+
+			if name == "CertificateAuth" && data[name] == nil {
+				data[name] = authtls.Config{
+					AuthTLSError: err.Error(),
+				}
+				// avoid mapping the result from the annotation
+				val = nil
 			}
 
 			_, alreadyDenied := data[DeniedKeyName]
