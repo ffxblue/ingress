@@ -14,53 +14,59 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package setting
+package settings
 
 import (
 	"strings"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
+	"github.com/onsi/ginkgo"
 
-	"k8s.io/api/extensions/v1beta1"
+	networking "k8s.io/api/networking/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/ingress-nginx/test/e2e/framework"
 )
 
-var _ = framework.IngressNginxDescribe("Server Tokens", func() {
+var _ = framework.DescribeSetting("server-tokens", func() {
 	f := framework.NewDefaultFramework("server-tokens")
 	serverTokens := "server-tokens"
 
-	BeforeEach(func() {
-		err := f.NewEchoDeployment()
-		Expect(err).NotTo(HaveOccurred())
+	ginkgo.BeforeEach(func() {
+		f.NewEchoDeployment()
 	})
 
-	AfterEach(func() {
-		updateConfigmap(serverTokens, "false", f.KubeClientSet)
+	ginkgo.It("should not exists Server header in the response", func() {
+		f.UpdateNginxConfigMapData(serverTokens, "false")
+
+		f.EnsureIngress(framework.NewSingleIngress(serverTokens, "/", serverTokens, f.Namespace, framework.EchoService, 80, nil))
+
+		f.WaitForNginxConfiguration(
+			func(cfg string) bool {
+				return strings.Contains(cfg, "server_tokens off") &&
+					strings.Contains(cfg, "more_clear_headers Server;")
+			})
 	})
 
-	It("should not exists Server header in the response", func() {
-		updateConfigmap(serverTokens, "false", f.KubeClientSet)
+	ginkgo.It("should exists Server header in the response when is enabled", func() {
+		f.UpdateNginxConfigMapData(serverTokens, "true")
 
-		ing, err := f.EnsureIngress(&v1beta1.Ingress{
+		f.EnsureIngress(&networking.Ingress{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:        serverTokens,
-				Namespace:   f.Namespace.Name,
+				Namespace:   f.Namespace,
 				Annotations: map[string]string{},
 			},
-			Spec: v1beta1.IngressSpec{
-				Rules: []v1beta1.IngressRule{
+			Spec: networking.IngressSpec{
+				Rules: []networking.IngressRule{
 					{
 						Host: serverTokens,
-						IngressRuleValue: v1beta1.IngressRuleValue{
-							HTTP: &v1beta1.HTTPIngressRuleValue{
-								Paths: []v1beta1.HTTPIngressPath{
+						IngressRuleValue: networking.IngressRuleValue{
+							HTTP: &networking.HTTPIngressRuleValue{
+								Paths: []networking.HTTPIngressPath{
 									{
 										Path: "/",
-										Backend: v1beta1.IngressBackend{
-											ServiceName: "http-svc",
+										Backend: networking.IngressBackend{
+											ServiceName: framework.EchoService,
 											ServicePort: intstr.FromInt(80),
 										},
 									},
@@ -72,55 +78,9 @@ var _ = framework.IngressNginxDescribe("Server Tokens", func() {
 			},
 		})
 
-		Expect(err).NotTo(HaveOccurred())
-		Expect(ing).NotTo(BeNil())
-
-		err = f.WaitForNginxConfiguration(
-			func(server string) bool {
-				return strings.Contains(server, "server_tokens off") &&
-					strings.Contains(server, "more_set_headers \"Server: \"")
+		f.WaitForNginxConfiguration(
+			func(cfg string) bool {
+				return strings.Contains(cfg, "server_tokens on")
 			})
-		Expect(err).NotTo(HaveOccurred())
-	})
-
-	It("should exists Server header in the response when is enabled", func() {
-		updateConfigmap(serverTokens, "true", f.KubeClientSet)
-
-		ing, err := f.EnsureIngress(&v1beta1.Ingress{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:        serverTokens,
-				Namespace:   f.Namespace.Name,
-				Annotations: map[string]string{},
-			},
-			Spec: v1beta1.IngressSpec{
-				Rules: []v1beta1.IngressRule{
-					{
-						Host: serverTokens,
-						IngressRuleValue: v1beta1.IngressRuleValue{
-							HTTP: &v1beta1.HTTPIngressRuleValue{
-								Paths: []v1beta1.HTTPIngressPath{
-									{
-										Path: "/",
-										Backend: v1beta1.IngressBackend{
-											ServiceName: "http-svc",
-											ServicePort: intstr.FromInt(80),
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		})
-
-		Expect(err).NotTo(HaveOccurred())
-		Expect(ing).NotTo(BeNil())
-
-		err = f.WaitForNginxConfiguration(
-			func(server string) bool {
-				return strings.Contains(server, "server_tokens on")
-			})
-		Expect(err).NotTo(HaveOccurred())
 	})
 })

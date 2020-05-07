@@ -1,4 +1,4 @@
-# Deploying the Nginx Ingress controller
+# Custom DH parameters for perfect forward secrecy
 
 This example aims to demonstrate the deployment of an nginx ingress controller and
 use a ConfigMap to configure custom Diffie-Hellman parameters file to help with
@@ -16,7 +16,8 @@ metadata:
   name: nginx-configuration
   namespace: ingress-nginx
   labels:
-    app: ingress-nginx
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/part-of: ingress-nginx
 ```
 
 ```console
@@ -26,7 +27,7 @@ $ kubectl create -f configmap.yaml
 ## Custom DH parameters secret
 
 ```console
-$> openssl dhparam 1024 2> /dev/null | base64
+$> openssl dhparam 4096 2> /dev/null | base64
 LS0tLS1CRUdJTiBESCBQQVJBTUVURVJ...
 ```
 
@@ -35,12 +36,13 @@ $ cat ssl-dh-param.yaml
 apiVersion: v1
 data:
   dhparam.pem: "LS0tLS1CRUdJTiBESCBQQVJBTUVURVJ..."
-kind: ConfigMap
+kind: Secret
 metadata:
-  name: nginx-configuration
+  name: lb-dhparam
   namespace: ingress-nginx
   labels:
-    app: ingress-nginx
+    app.kubernetes.io/name: ingress-nginx
+    app.kubernetes.io/part-of: ingress-nginx
 ```
 
 ```console

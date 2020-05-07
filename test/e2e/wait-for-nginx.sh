@@ -14,48 +14,80 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-export JSONPATH='{range .items[*]}{@.metadata.name}:{range @.status.conditions[*]}{@.type}={@.status};{end}{end}'
+set -e
+if ! [ -z $DEBUG ]; then
+	set -x
+fi
 
-echo "deploying NGINX Ingress controller"
-cat deploy/namespace.yaml | kubectl apply -f -
-cat deploy/default-backend.yaml | kubectl apply -f -
-cat deploy/configmap.yaml | kubectl apply -f -
-cat deploy/tcp-services-configmap.yaml | kubectl apply -f -
-cat deploy/udp-services-configmap.yaml | kubectl apply -f -
-cat deploy/without-rbac.yaml | kubectl apply -f -
-cat deploy/provider/baremetal/service-nodeport.yaml | kubectl apply -f -
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-echo "updating image..."
-kubectl set image \
-    deployments \
-    --namespace ingress-nginx \
-	--selector app=ingress-nginx \
-    nginx-ingress-controller=quay.io/kubernetes-ingress-controller/nginx-ingress-controller:test
+export NAMESPACE=$1
+export NAMESPACE_OVERLAY=$2
 
-sleep 5
+echo "deploying NGINX Ingress controller in namespace $NAMESPACE"
 
-echo "waiting NGINX ingress pod..."
+function on_exit {
+    local error_code="$?"
 
-function waitForPod() {
-    until kubectl get pods -n ingress-nginx -l app=ingress-nginx -o jsonpath="$JSONPATH" 2>&1 | grep -q "Ready=True";
-    do
-        sleep 1;
-    done
+    test $error_code == 0 && return;
+
+    echo "Obtaining ingress controller pod logs..."
+    kubectl logs -l app.kubernetes.io/name=ingress-nginx -n $NAMESPACE
 }
+trap on_exit EXIT
 
-export -f waitForPod
+cat << EOF | kubectl apply --namespace=$NAMESPACE -f -
+# Required for e2e tcp tests
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: tcp-services
+  namespace: $NAMESPACE
 
-timeout 30s bash -c waitForPod
+EOF
 
-if kubectl get pods -n ingress-nginx -l app=ingress-nginx -o jsonpath="$JSONPATH" 2>&1 | grep -q "Ready=True";
-then
-    echo "Kubernetes deployments started"
+# Use the namespace overlay if it was requested
+if [[ ! -z "$NAMESPACE_OVERLAY" && -d "$DIR/namespace-overlays/$NAMESPACE_OVERLAY" ]]; then
+    echo "Namespace overlay $NAMESPACE_OVERLAY is being used for namespace $NAMESPACE"
+    helm install nginx-ingress ${DIR}/charts/ingress-nginx \
+        --namespace=$NAMESPACE \
+        --wait \
+        --values "$DIR/namespace-overlays/$NAMESPACE_OVERLAY/values.yaml"
 else
-    echo "Kubernetes deployments with issues:"
-    kubectl get pods -n ingress-nginx
+    cat << EOF | helm install nginx-ingress ${DIR}/charts/ingress-nginx --namespace=$NAMESPACE --wait --values -
+# TODO: remove the need to use fullnameOverride
+fullnameOverride: nginx-ingress
+controller:
+  image:
+    repository: ingress-controller/nginx-ingress-controller
+    tag: 1.0.0-dev
+  scope:
+    enabled: true
+  config:
+    worker-processes: "1"
+  readinessProbe:
+    initialDelaySeconds: 3
+    periodSeconds: 1
+  livenessProbe:
+    initialDelaySeconds: 3
+    periodSeconds: 1
+  service:
+    type: NodePort
+  extraArgs:
+    tcp-services-configmap: $NAMESPACE/tcp-services
+    # e2e tests do not require information about ingress status
+    update-status: "false"
+  terminationGracePeriodSeconds: 1
+  admissionWebhooks:
+    enabled: false
 
-    echo "Reason:"
-    kubectl describe pods -n ingress-nginx
-    kubectl logs -n ingress-nginx -l app=ingress-nginx
-    exit 1
+defaultBackend:
+  enabled: false
+
+rbac:
+  create: true
+  scope: true
+
+EOF
+
 fi

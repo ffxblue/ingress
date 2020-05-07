@@ -23,10 +23,10 @@ KUBE_ROOT=$(dirname "${BASH_SOURCE}")/..
 cd "${KUBE_ROOT}"
 
 GOLINT=${GOLINT:-"golint"}
-PACKAGES=($(go list ./... | grep -v /vendor/))
+PACKAGES=($(go list ./internal/... | grep -v /vendor/))
 bad_files=()
 for package in "${PACKAGES[@]}"; do
-  out=$("${GOLINT}" -min_confidence=0.9 "${package}" | grep -v 'should not use dot imports' || :)
+  out=$("${GOLINT}" -min_confidence=0.9 "${package}" | grep -v -E '(should not use dot imports|internal/file/bindata.go)' || :)
   if [[ -n "${out}" ]]; then
     bad_files+=("${out}")
   fi

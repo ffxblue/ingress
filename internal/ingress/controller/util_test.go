@@ -20,14 +20,8 @@ import (
 	"testing"
 )
 
-type fakeError struct{}
-
-func (fe *fakeError) Error() string {
-	return "fakeError"
-}
-
-func TestSysctlFSFileMax(t *testing.T) {
-	i := sysctlFSFileMax()
+func TestRlimitMaxNumFiles(t *testing.T) {
+	i := rlimitMaxNumFiles()
 	if i < 1 {
 		t.Errorf("returned %v but expected > 0", i)
 	}

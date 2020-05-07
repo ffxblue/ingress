@@ -12,188 +12,291 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-.PHONY: all
-all: all-container
+# Add the following 'help' target to your Makefile
+# And add help text after each target name starting with '\#\#'
 
-BUILDTAGS=
+.DEFAULT_GOAL:=help
+
+.EXPORT_ALL_VARIABLES:
+
+ifndef VERBOSE
+.SILENT:
+endif
+
+# set default shell
+SHELL=/bin/bash -o pipefail -o errexit
 
 # Use the 0.0 tag for testing, it shouldn't clobber any release builds
-TAG?=0.11.0
-REGISTRY?=quay.io/kubernetes-ingress-controller
-GOOS?=linux
-DOCKER?=gcloud docker --
-SED_I?=sed -i
-GOHOSTOS ?= $(shell go env GOHOSTOS)
+TAG ?= 0.32.0
 
-ifeq ($(GOHOSTOS),darwin)
-  SED_I=sed -i ''
+# Use docker to run makefile tasks
+USE_DOCKER ?= true
+
+# Disable run docker tasks if running in prow.
+# only checks the existence of the variable, not the value.
+ifdef DIND_TASKS
+USE_DOCKER=false
 endif
 
-REPO_INFO=$(shell git config --get remote.origin.url)
+# e2e settings
+# Allow limiting the scope of the e2e tests. By default run everything
+FOCUS ?= .*
+# number of parallel test
+E2E_NODES ?= 14
+# slow test only if takes > 50s
+SLOW_E2E_THRESHOLD ?= 50
+# run e2e test suite with tests that check for memory leaks? (default is false)
+E2E_CHECK_LEAKS ?=
 
-ifndef COMMIT
-  COMMIT := git-$(shell git rev-parse --short HEAD)
+REPO_INFO ?= $(shell git config --get remote.origin.url)
+GIT_COMMIT ?= git-$(shell git rev-parse --short HEAD)
+
+PKG = k8s.io/ingress-nginx
+
+HOST_ARCH = $(shell which go >/dev/null 2>&1 && go env GOARCH)
+ARCH ?= $(HOST_ARCH)
+ifeq ($(ARCH),)
+    $(error mandatory variable ARCH is empty, either set it when calling the command or make sure 'go env GOARCH' works)
 endif
 
-PKG=k8s.io/ingress-nginx
+REGISTRY ?= quay.io/kubernetes-ingress-controller
 
-ARCH ?= $(shell go env GOARCH)
-GOARCH = ${ARCH}
-DUMB_ARCH = ${ARCH}
+BASE_IMAGE ?= quay.io/kubernetes-ingress-controller/nginx
+BASE_TAG ?= 5d67794f4fbf38ec6575476de46201b068eabf87
 
-ALL_ARCH = amd64 arm arm64 ppc64le s390x
+GOARCH=$(ARCH)
+GOBUILD_FLAGS := -v
 
-QEMUVERSION=v2.9.1-1
-
-IMGNAME = nginx-ingress-controller
-IMAGE = $(REGISTRY)/$(IMGNAME)
-MULTI_ARCH_IMG = $(IMAGE)-$(ARCH)
-
-# Set default base image dynamically for each arch
-BASEIMAGE?=quay.io/kubernetes-ingress-controller/nginx-$(ARCH):0.37
-
-ifeq ($(ARCH),arm)
-	QEMUARCH=arm
-	GOARCH=arm
-	DUMB_ARCH=armhf
-endif
-ifeq ($(ARCH),arm64)
-    QEMUARCH=aarch64
-endif
-ifeq ($(ARCH),ppc64le)
-	QEMUARCH=ppc64le
-	GOARCH=ppc64le
-	DUMB_ARCH=ppc64el
-endif
-ifeq ($(ARCH),s390x)
-    QEMUARCH=s390x
-endif
+# use vendor directory instead of go modules https://github.com/golang/go/wiki/Modules
+GO111MODULE=off
 
 TEMP_DIR := $(shell mktemp -d)
-
 DOCKERFILE := $(TEMP_DIR)/rootfs/Dockerfile
 
-.PHONY: image-info
-image-info:
-	echo -n '{"image":"$(IMAGE)","tag":"$(TAG)"}'
+help:  ## Display this help
+	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
+# internal task
 .PHONY: sub-container-%
 sub-container-%:
 	$(MAKE) ARCH=$* build container
 
+# internal task
 .PHONY: sub-push-%
-sub-push-%:
+sub-push-%: ## Publish image for a particular arch.
 	$(MAKE) ARCH=$* push
 
-.PHONY: all-container
-all-container: $(addprefix sub-container-,$(ALL_ARCH))
-
-.PHONY: all-push
-all-push: $(addprefix sub-push-,$(ALL_ARCH))
-
 .PHONY: container
-container: .container-$(ARCH)
+container: clean-container .container-$(ARCH) ## Build image for a particular arch.
 
+# internal task to build image for a particular arch.
 .PHONY: .container-$(ARCH)
-.container-$(ARCH):
-	cp -RP ./* $(TEMP_DIR)
-	$(SED_I) "s|BASEIMAGE|$(BASEIMAGE)|g" $(DOCKERFILE)
-	$(SED_I) "s|QEMUARCH|$(QEMUARCH)|g" $(DOCKERFILE)
-	$(SED_I) "s|DUMB_ARCH|$(DUMB_ARCH)|g" $(DOCKERFILE)
+.container-$(ARCH): init-docker-buildx
+	mkdir -p $(TEMP_DIR)/rootfs
+	cp bin/$(ARCH)/nginx-ingress-controller $(TEMP_DIR)/rootfs/nginx-ingress-controller
+	cp bin/$(ARCH)/dbg $(TEMP_DIR)/rootfs/dbg
+	cp bin/$(ARCH)/wait-shutdown $(TEMP_DIR)/rootfs/wait-shutdown
 
-ifeq ($(ARCH),amd64)
-	# When building "normally" for amd64, remove the whole line, it has no part in the amd64 image
-	$(SED_I) "/CROSS_BUILD_/d" $(DOCKERFILE)
-else
-	# When cross-building, only the placeholder "CROSS_BUILD_" should be removed
-	# Register /usr/bin/qemu-ARCH-static as the handler for ARM binaries in the kernel
-	$(DOCKER) run --rm --privileged multiarch/qemu-user-static:register --reset
-	curl -sSL https://github.com/multiarch/qemu-user-static/releases/download/$(QEMUVERSION)/x86_64_qemu-$(QEMUARCH)-static.tar.gz | tar -xz -C $(TEMP_DIR)/rootfs
-	$(SED_I) "s/CROSS_BUILD_//g" $(DOCKERFILE)
-endif
+	cp -RP rootfs/* $(TEMP_DIR)/rootfs
 
-	$(DOCKER) build -t $(MULTI_ARCH_IMG):$(TAG) $(TEMP_DIR)/rootfs
+	echo "Building docker image ($(ARCH))..."
+	# buildx assumes images are multi-arch
+	docker buildx build \
+		--pull \
+		--load \
+		--no-cache \
+		--progress plain \
+		--platform linux/$(ARCH) \
+		--build-arg BASE_IMAGE="$(BASE_IMAGE)-$(ARCH):$(BASE_TAG)" \
+		--build-arg VERSION="$(TAG)" \
+		-t $(REGISTRY)/nginx-ingress-controller-${ARCH}:$(TAG) $(TEMP_DIR)/rootfs
 
-ifeq ($(ARCH), amd64)
-	# This is for to maintain the backward compatibility
-	$(DOCKER) tag $(MULTI_ARCH_IMG):$(TAG) $(IMAGE):$(TAG)
-endif
+.PHONY: clean-container
+clean-container: ## Removes local image
+	echo "removing old image $(BASE_IMAGE)-$(ARCH):$(TAG)"
+	@docker rmi -f $(BASE_IMAGE)-$(ARCH):$(TAG) || true
 
 .PHONY: push
-push: .push-$(ARCH)
+push: .push-$(ARCH) ## Publish image for a particular arch.
 
+# internal task
 .PHONY: .push-$(ARCH)
 .push-$(ARCH):
-	$(DOCKER) push $(MULTI_ARCH_IMG):$(TAG)
-ifeq ($(ARCH), amd64)
-	$(DOCKER) push $(IMAGE):$(TAG)
+	docker push $(REGISTRY)/nginx-ingress-controller-${ARCH}:$(TAG)
+
+.PHONY: push-manifest
+push-manifest:
+	docker manifest create $(REGISTRY)/nginx-ingress-controller:$(TAG) \
+		$(REGISTRY)/nginx-ingress-controller-amd64:$(TAG) \
+		$(REGISTRY)/nginx-ingress-controller-arm:$(TAG) \
+		$(REGISTRY)/nginx-ingress-controller-arm64:$(TAG)
+	docker manifest push --purge $(REGISTRY)/nginx-ingress-controller:$(TAG)
+
+.PHONY: build
+build: check-go-version ## Build ingress controller, debug tool and pre-stop hook.
+ifeq ($(USE_DOCKER), true)
+	@build/run-in-docker.sh \
+		PKG=$(PKG) \
+		ARCH=$(ARCH) \
+		GIT_COMMIT=$(GIT_COMMIT) \
+		REPO_INFO=$(REPO_INFO) \
+		TAG=$(TAG) \
+		GOBUILD_FLAGS=$(GOBUILD_FLAGS) \
+		build/build.sh
+else
+	@build/build.sh
+endif
+
+.PHONY: build-plugin
+build-plugin: check-go-version ## Build ingress-nginx krew plugin.
+ifeq ($(USE_DOCKER), true)
+	@build/run-in-docker.sh \
+		PKG=$(PKG) \
+		ARCH=$(ARCH) \
+		GIT_COMMIT=$(GIT_COMMIT) \
+		REPO_INFO=$(REPO_INFO) \
+		TAG=$(TAG) \
+		GOBUILD_FLAGS=$(GOBUILD_FLAGS) \
+		build/build-plugin.sh
+else
+	@build/build-plugin.sh
 endif
 
 .PHONY: clean
-clean:
-	$(DOCKER) rmi -f $(MULTI_ARCH_IMG):$(TAG) || true
+clean: ## Remove .gocache directory.
+	rm -rf bin/ .gocache/ .cache/
 
-.PHONE: code-generator
-code-generator:
-		go-bindata -o internal/file/bindata.go -prefix="rootfs" -pkg=file -ignore=Dockerfile -ignore=".DS_Store" rootfs/...
-
-.PHONY: build
-build: clean
-	CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build -a -installsuffix cgo \
-		-ldflags "-s -w -X ${PKG}/version.RELEASE=${TAG} -X ${PKG}/version.COMMIT=${COMMIT} -X ${PKG}/version.REPO=${REPO_INFO}" \
-		-o ${TEMP_DIR}/rootfs/nginx-ingress-controller ${PKG}/cmd/nginx
-
-.PHONY: verify-all
-verify-all:
-	@./hack/verify-all.sh
+.PHONY: static-check
+static-check: ## Run verification script for boilerplate, codegen, gofmt, golint, lualint and chart-lint.
+ifeq ($(USE_DOCKER), true)
+	@build/run-in-docker.sh \
+		hack/verify-all.sh
+else
+	@hack/verify-all.sh
+endif
 
 .PHONY: test
-test:
-	@go test -v -race -tags "$(BUILDTAGS) cgo" $(shell go list ${PKG}/... | grep -v vendor | grep -v '/test/e2e')
+test: check-go-version ## Run go unit tests.
+ifeq ($(USE_DOCKER), true)
+	@build/run-in-docker.sh \
+		PKG=$(PKG) \
+		ARCH=$(ARCH) \
+		GIT_COMMIT=$(GIT_COMMIT) \
+		REPO_INFO=$(REPO_INFO) \
+		TAG=$(TAG) \
+		GOBUILD_FLAGS=$(GOBUILD_FLAGS) \
+		build/test.sh
+else
+	@build/test.sh
+endif
 
-.PHONY: e2e-image
-e2e-image: sub-container-amd64
-	TAG=$(TAG) IMAGE=$(MULTI_ARCH_IMG) docker tag $(IMAGE):$(TAG) $(IMAGE):test
-	docker images
+.PHONY: lua-test
+lua-test: ## Run lua unit tests.
+ifeq ($(USE_DOCKER), true)
+	@build/run-in-docker.sh \
+		BUSTED_ARGS=$(BUSTED_ARGS) \
+		build/test-lua.sh
+else
+	@build/test-lua.sh
+endif
 
 .PHONY: e2e-test
-e2e-test:
-	@go test -o e2e-tests -c ./test/e2e
-	@KUBECONFIG=${HOME}/.kube/config ./e2e-tests -test.parallel 1
+e2e-test: check-go-version ## Run e2e tests (expects access to a working Kubernetes cluster).
+	@build/run-e2e-suite.sh
+
+.PHONY: e2e-test-image
+e2e-test-image: ## Build image for e2e tests.
+	@make -C test/e2e-image
+
+.PHONY: e2e-test-binary
+e2e-test-binary: check-go-version ## Build ginkgo binary for e2e tests.
+ifeq ($(USE_DOCKER), true)
+	@build/run-in-docker.sh \
+		ginkgo build ./test/e2e
+else
+	@ginkgo build ./test/e2e
+endif
+
+.PHONY: print-e2e-suite
+print-e2e-suite: e2e-test-binary ## Prints information about the suite of e2e tests.
+	@build/run-in-docker.sh \
+		hack/print-e2e-suite.sh
 
 .PHONY: cover
-cover:
-	@rm -rf coverage.txt
-	@for d in `go list ./... | grep -v vendor | grep -v '/test/e2e'`; do \
-		t=$$(date +%s); \
-		go test -coverprofile=cover.out -covermode=atomic $$d || exit 1; \
-		echo "Coverage test $$d took $$(($$(date +%s)-t)) seconds"; \
-		if [ -f cover.out ]; then \
-			cat cover.out >> coverage.txt; \
-			rm cover.out; \
-		fi; \
-	done
-	@echo "Uploading coverage results..."
+cover: check-go-version ## Run go coverage unit tests.
+	@build/cover.sh
+	echo "Uploading coverage results..."
 	@curl -s https://codecov.io/bash | bash
 
 .PHONY: vet
 vet:
-	@go vet $(shell go list ${PKG}/... | grep -v vendor)
-
-.PHONY: luacheck
-luacheck:
-	luacheck -q ./rootfs/etc/nginx/lua/
-
-.PHONY: release
-release: all-container all-push
-	echo "done"
-
-.PHONY: docker-build
-docker-build: all-container
-
-.PHONY: docker-push
-docker-push: all-push
+	@go vet $(shell go list ${PKG}/internal/... | grep -v vendor)
 
 .PHONY: check_dead_links
-check_dead_links:
-	docker run -t -v $$PWD:/tmp aledbf/awesome_bot:0.1 --allow-dupe --allow-redirect $(shell find $$PWD -mindepth 1 -name "*.md" -printf '%P\n' | grep -v vendor | grep -v Changelog.md)
+check_dead_links: ## Check if the documentation contains dead links.
+	@docker run -t \
+	  -v $$PWD:/tmp aledbf/awesome_bot:0.1 \
+	  --allow-dupe \
+	  --allow-redirect $(shell find $$PWD -mindepth 1 -name "*.md" -printf '%P\n' | grep -v vendor | grep -v Changelog.md)
+
+.PHONY: dep-ensure
+dep-ensure: check-go-version ## Update and vendo go dependencies.
+	GO111MODULE=on go mod tidy -v
+	find vendor -name '*_test.go' -delete
+	GO111MODULE=on go mod vendor
+
+.PHONY: dev-env
+dev-env: check-go-version ## Starts a local Kubernetes cluster using kind, building and deploying the ingress controller.
+	@build/dev-env.sh
+
+.PHONY: dev-env-stop
+dev-env-stop: ## Deletes local Kubernetes cluster created by kind.
+	@kind delete cluster --name ingress-nginx-dev
+
+.PHONY: live-docs
+live-docs: ## Build and launch a local copy of the documentation website in http://localhost:3000
+	@docker run --rm -it -p 8000:8000 -v ${PWD}:/docs squidfunk/mkdocs-material:5.1.0
+
+.PHONY: misspell
+misspell: check-go-version ## Check for spelling errors.
+	@go get github.com/client9/misspell/cmd/misspell
+	misspell \
+		-locale US \
+		-error \
+		cmd/* internal/* deploy/* docs/* design/* test/* README.md
+
+.PHONY: kind-e2e-test
+kind-e2e-test: check-go-version ## Run e2e tests using kind.
+	@test/e2e/run.sh
+
+.PHONY: kind-e2e-chart-tests
+kind-e2e-chart-tests: ## Run helm chart e2e tests
+	@test/e2e/run-chart-test.sh
+
+.PHONY: run-ingress-controller
+run-ingress-controller: ## Run the ingress controller locally using a kubectl proxy connection.
+	@build/run-ingress-controller.sh
+
+.PHONY: check-go-version
+check-go-version:
+ifeq ($(USE_DOCKER), true)
+	@build/run-in-docker.sh \
+		hack/check-go-version.sh
+else
+	@hack/check-go-version.sh
+endif
+
+.PHONY: init-docker-buildx
+init-docker-buildx:
+ifeq ($(DIND_TASKS),)
+ifneq ($(shell docker buildx 2>&1 >/dev/null; echo $?),)
+	$(error "buildx not available. Docker 19.03 or higher is required with experimental features enabled")
+endif
+	docker run --rm --privileged docker/binfmt:66f9012c56a8316f9244ffd7622d7c21c1f6f28d
+	docker buildx create --name ingress-nginx --use || true
+	docker buildx inspect --bootstrap
+endif
+
+.PHONY: show-version
+show-version:
+	echo -n $(TAG)

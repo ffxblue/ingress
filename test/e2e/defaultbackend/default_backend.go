@@ -17,28 +17,19 @@ limitations under the License.
 package defaultbackend
 
 import (
-	"crypto/tls"
 	"net/http"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
-	"github.com/parnurzeal/gorequest"
+	"github.com/onsi/ginkgo"
+	"github.com/stretchr/testify/assert"
+	"gopkg.in/gavv/httpexpect.v2"
 
 	"k8s.io/ingress-nginx/test/e2e/framework"
 )
 
-const defaultBackend = "default backend - 404"
-
-var _ = framework.IngressNginxDescribe("Default backend", func() {
+var _ = framework.IngressNginxDescribe("[Default Backend]", func() {
 	f := framework.NewDefaultFramework("default-backend")
 
-	BeforeEach(func() {
-	})
-
-	AfterEach(func() {
-	})
-
-	It("should return 404 sending requests when only a default backend is running", func() {
+	ginkgo.It("should return 404 sending requests when only a default backend is running", func() {
 		testCases := []struct {
 			Name   string
 			Host   string
@@ -69,33 +60,55 @@ var _ = framework.IngressNginxDescribe("Default backend", func() {
 		}
 
 		for _, test := range testCases {
-			By(test.Name)
+			ginkgo.By(test.Name)
 
-			request := gorequest.New()
-			var cm *gorequest.SuperAgent
+			var req *httpexpect.Request
 
 			switch test.Scheme {
 			case framework.HTTP:
-				cm = request.CustomMethod(test.Method, f.NginxHTTPURL)
+				req = f.HTTPTestClient().Request(test.Method, test.Path)
+				req.WithURL(f.GetURL(framework.HTTP) + test.Path)
 			case framework.HTTPS:
-				cm = request.CustomMethod(test.Method, f.NginxHTTPSURL)
-				// the default backend uses a self generated certificate
-				cm.Transport = &http.Transport{
-					TLSClientConfig: &tls.Config{
-						InsecureSkipVerify: true,
-					},
-				}
+				req = f.HTTPTestClient().Request(test.Method, test.Path)
+				req.WithURL(f.GetURL(framework.HTTPS) + test.Path)
 			default:
-				Fail("Unexpected request scheme")
+				ginkgo.Fail("Unexpected request scheme")
 			}
 
 			if test.Host != "" {
-				cm.Set("Host", test.Host)
+				req.WithHeader("Host", test.Host)
 			}
 
-			resp, _, errs := cm.End()
-			Expect(len(errs)).Should(BeNumerically("==", 0))
-			Expect(resp.StatusCode).Should(Equal(test.Status))
+			req.Expect().
+				Status(test.Status)
 		}
+	})
+
+	ginkgo.It("enables access logging for default backend", func() {
+		f.UpdateNginxConfigMapData("enable-access-log-for-default-backend", "true")
+
+		f.HTTPTestClient().
+			GET("/somethingOne").
+			WithHeader("Host", "foo").
+			Expect().
+			Status(http.StatusNotFound)
+
+		logs, err := f.NginxLogs()
+		assert.Nil(ginkgo.GinkgoT(), err, "obtaining nginx logs")
+		assert.Contains(ginkgo.GinkgoT(), logs, "/somethingOne")
+	})
+
+	ginkgo.It("disables access logging for default backend", func() {
+		f.UpdateNginxConfigMapData("enable-access-log-for-default-backend", "false")
+
+		f.HTTPTestClient().
+			GET("/somethingTwo").
+			WithHeader("Host", "bar").
+			Expect().
+			Status(http.StatusNotFound)
+
+		logs, err := f.NginxLogs()
+		assert.Nil(ginkgo.GinkgoT(), err, "obtaining nginx logs")
+		assert.NotContains(ginkgo.GinkgoT(), logs, "/somethingTwo")
 	})
 })

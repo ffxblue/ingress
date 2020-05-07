@@ -16,6 +16,12 @@ limitations under the License.
 
 package file
 
+import (
+	"os"
+
+	"github.com/pkg/errors"
+)
+
 const (
 	// AuthDirectory default directory used to store files
 	// to authenticate request
@@ -25,18 +31,34 @@ const (
 	// This directory contains all the SSL certificates that are specified in Ingress rules.
 	// The name of each file is <namespace>-<secret name>.pem. The content is the concatenated
 	// certificate and key.
-	DefaultSSLDirectory = "/ingress-controller/ssl"
+	DefaultSSLDirectory = "/etc/ingress-controller/ssl"
 )
 
 var (
 	directories = []string{
-		"/etc/nginx/template",
-		"/run",
 		DefaultSSLDirectory,
 		AuthDirectory,
 	}
-
-	files = []string{
-		"/run/nginx.pid",
-	}
 )
+
+// CreateRequiredDirectories verifies if the required directories to
+// start the ingress controller exist and creates the missing ones.
+func CreateRequiredDirectories() error {
+	for _, directory := range directories {
+		_, err := os.Stat(directory)
+		if err != nil {
+			if os.IsNotExist(err) {
+				err = os.MkdirAll(directory, ReadWriteByUser)
+				if err != nil {
+					return errors.Wrapf(err, "creating directory '%v'", directory)
+				}
+
+				continue
+			}
+
+			return errors.Wrapf(err, "checking directory %v", directory)
+		}
+	}
+
+	return nil
+}

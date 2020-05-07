@@ -17,9 +17,7 @@ limitations under the License.
 package store
 
 import (
-	"fmt"
-
-	extensions "k8s.io/api/extensions/v1beta1"
+	networking "k8s.io/api/networking/v1beta1"
 	"k8s.io/client-go/tools/cache"
 )
 
@@ -28,14 +26,14 @@ type IngressLister struct {
 	cache.Store
 }
 
-// ByKey searches for an ingress in the local ingress Store
-func (il IngressLister) ByKey(key string) (*extensions.Ingress, error) {
+// ByKey returns the Ingress matching key in the local Ingress Store.
+func (il IngressLister) ByKey(key string) (*networking.Ingress, error) {
 	i, exists, err := il.GetByKey(key)
 	if err != nil {
 		return nil, err
 	}
 	if !exists {
-		return nil, fmt.Errorf("ingress %v was not found", key)
+		return nil, NotExistsError(key)
 	}
-	return i.(*extensions.Ingress), nil
+	return i.(*networking.Ingress), nil
 }

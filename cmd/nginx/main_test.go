@@ -17,83 +17,112 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"syscall"
 	"testing"
 	"time"
 
-	"k8s.io/ingress-nginx/internal/file"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/fake"
+
 	"k8s.io/ingress-nginx/internal/ingress/controller"
+	"k8s.io/ingress-nginx/internal/nginx"
 )
 
 func TestCreateApiserverClient(t *testing.T) {
-	home := os.Getenv("HOME")
-	kubeConfigFile := fmt.Sprintf("%v/.kube/config", home)
-
-	cli, err := createApiserverClient("", kubeConfigFile)
-	if err != nil {
-		t.Fatalf("unexpected error creating api server client: %v", err)
-	}
-	if cli == nil {
-		t.Fatalf("expected a kubernetes client but none returned")
-	}
-
-	_, err = createApiserverClient("", "")
+	_, err := createApiserverClient("", "", "")
 	if err == nil {
-		t.Fatalf("expected an error creating api server client without an api server URL or kubeconfig file")
+		t.Fatal("Expected an error creating REST client without an API server URL or kubeconfig file.")
+	}
+}
+
+func init() {
+	// the default value of nginx.TemplatePath assumes the template exists in
+	// the root filesystem and not in the rootfs directory
+	path, err := filepath.Abs(filepath.Join("../../rootfs/", nginx.TemplatePath))
+	if err == nil {
+		nginx.TemplatePath = path
 	}
 }
 
 func TestHandleSigterm(t *testing.T) {
-	home := os.Getenv("HOME")
-	kubeConfigFile := fmt.Sprintf("%v/.kube/config", home)
+	const (
+		podName   = "test"
+		namespace = "test"
+	)
 
-	cli, err := createApiserverClient("", kubeConfigFile)
+	clientSet := fake.NewSimpleClientset()
+
+	createConfigMap(clientSet, namespace, t)
+
+	pod := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Namespace: namespace,
+		},
+	}
+
+	_, err := clientSet.CoreV1().Pods(namespace).Create(context.TODO(), &pod, metav1.CreateOptions{})
 	if err != nil {
-		t.Fatalf("unexpected error creating api server client: %v", err)
+		t.Fatalf("error creating pod %v: %v", pod, err)
 	}
 
 	resetForTesting(func() { t.Fatal("bad parse") })
 
-	os.Setenv("POD_NAME", "test")
-	os.Setenv("POD_NAMESPACE", "test")
-	defer os.Setenv("POD_NAME", "")
-	defer os.Setenv("POD_NAMESPACE", "")
+	os.Setenv("POD_NAME", podName)
+	os.Setenv("POD_NAMESPACE", namespace)
 
 	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"cmd", "--default-backend-service", "ingress-nginx/default-backend-http", "--http-port", "0", "--https-port", "0"}
 
+	defer func() {
+		os.Setenv("POD_NAME", "")
+		os.Setenv("POD_NAMESPACE", "")
+		os.Args = oldArgs
+	}()
+
+	os.Args = []string{"cmd", "--default-backend-service", "ingress-nginx/default-backend-http", "--http-port", "0", "--https-port", "0"}
 	_, conf, err := parseFlags()
 	if err != nil {
-		t.Errorf("unexpected error creating NGINX controller: %v", err)
+		t.Errorf("Unexpected error creating NGINX controller: %v", err)
 	}
-	conf.Client = cli
+	conf.Client = clientSet
 
-	fs, err := file.NewFakeFS()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	ngx := controller.NewNGINXController(conf, fs)
+	ngx := controller.NewNGINXController(conf, nil)
 
 	go handleSigterm(ngx, func(code int) {
 		if code != 1 {
-			t.Errorf("expected exit code 1 but %v received", code)
+			t.Errorf("Expected exit code 1 but %d received", code)
 		}
-
-		return
 	})
 
 	time.Sleep(1 * time.Second)
 
-	t.Logf("sending SIGTERM to process PID %v", syscall.Getpid())
+	t.Logf("Sending SIGTERM to PID %d", syscall.Getpid())
 	err = syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
 	if err != nil {
-		t.Errorf("unexpected error sending SIGTERM signal")
+		t.Error("Unexpected error sending SIGTERM signal.")
 	}
 }
 
-func TestRegisterHandlers(t *testing.T) {
+func createConfigMap(clientSet kubernetes.Interface, ns string, t *testing.T) string {
+	t.Helper()
+
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:     "config",
+			SelfLink: fmt.Sprintf("/api/v1/namespaces/%s/configmaps/config", ns),
+		},
+	}
+
+	cm, err := clientSet.CoreV1().ConfigMaps(ns).Create(context.TODO(), configMap, metav1.CreateOptions{})
+	if err != nil {
+		t.Errorf("error creating the configuration map: %v", err)
+	}
+
+	return cm.Name
 }

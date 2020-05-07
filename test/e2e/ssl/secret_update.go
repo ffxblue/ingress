@@ -17,104 +17,111 @@ limitations under the License.
 package ssl
 
 import (
+	"context"
+	"crypto/tls"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
-
-	"k8s.io/api/core/v1"
-	"k8s.io/api/extensions/v1beta1"
+	"github.com/onsi/ginkgo"
+	"github.com/stretchr/testify/assert"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/ingress-nginx/test/e2e/framework"
 )
 
-var _ = framework.IngressNginxDescribe("SSL", func() {
+var _ = framework.IngressNginxDescribe("[SSL] secret update", func() {
 	f := framework.NewDefaultFramework("ssl")
 
-	BeforeEach(func() {
-		err := f.NewEchoDeployment()
-		Expect(err).NotTo(HaveOccurred())
+	ginkgo.BeforeEach(func() {
+		f.NewEchoDeployment()
 	})
 
-	AfterEach(func() {
-	})
-
-	It("should not appear references to secret updates not used in ingress rules", func() {
+	ginkgo.It("should not appear references to secret updates not used in ingress rules", func() {
 		host := "ssl-update"
 
-		dummySecret, err := f.EnsureSecret(&v1.Secret{
+		dummySecret := f.EnsureSecret(&v1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "dummy",
-				Namespace: f.Namespace.Name,
+				Namespace: f.Namespace,
 			},
 			Data: map[string][]byte{
 				"key": []byte("value"),
 			},
 		})
-		Expect(err).NotTo(HaveOccurred())
 
-		ing, err := f.EnsureIngress(&v1beta1.Ingress{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      host,
-				Namespace: f.Namespace.Name,
-			},
-			Spec: v1beta1.IngressSpec{
-				TLS: []v1beta1.IngressTLS{
-					{
-						Hosts:      []string{host},
-						SecretName: host,
-					},
-				},
-				Rules: []v1beta1.IngressRule{
-					{
-						Host: host,
-						IngressRuleValue: v1beta1.IngressRuleValue{
-							HTTP: &v1beta1.HTTPIngressRuleValue{
-								Paths: []v1beta1.HTTPIngressPath{
-									{
-										Path: "/",
-										Backend: v1beta1.IngressBackend{
-											ServiceName: "http-svc",
-											ServicePort: intstr.FromInt(80),
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		})
-
-		Expect(err).ToNot(HaveOccurred())
-		Expect(ing).ToNot(BeNil())
-
-		_, _, _, err = framework.CreateIngressTLSSecret(f.KubeClientSet,
+		ing := f.EnsureIngress(framework.NewSingleIngressWithTLS(host, "/", host, []string{host}, f.Namespace, framework.EchoService, 80, nil))
+		_, err := framework.CreateIngressTLSSecret(f.KubeClientSet,
 			ing.Spec.TLS[0].Hosts,
 			ing.Spec.TLS[0].SecretName,
 			ing.Namespace)
-		Expect(err).ToNot(HaveOccurred())
+		assert.Nil(ginkgo.GinkgoT(), err)
 
-		err = f.WaitForNginxServer(host,
+		time.Sleep(5 * time.Second)
+
+		f.WaitForNginxServer(host,
 			func(server string) bool {
 				return strings.Contains(server, "server_name ssl-update") &&
 					strings.Contains(server, "listen 443")
 			})
-		Expect(err).ToNot(HaveOccurred())
 
 		log, err := f.NginxLogs()
-		Expect(err).ToNot(HaveOccurred())
-		Expect(log).ToNot(BeEmpty())
+		assert.Nil(ginkgo.GinkgoT(), err, "obtaining nginx logs")
+		assert.NotContains(ginkgo.GinkgoT(), log, fmt.Sprintf("starting syncing of secret %v/dummy", f.Namespace))
 
-		Expect(log).ToNot(ContainSubstring(fmt.Sprintf("starting syncing of secret %v/dummy", f.Namespace.Name)))
-		time.Sleep(30 * time.Second)
+		time.Sleep(5 * time.Second)
+
 		dummySecret.Data["some-key"] = []byte("some value")
-		f.KubeClientSet.CoreV1().Secrets(f.Namespace.Name).Update(dummySecret)
-		time.Sleep(30 * time.Second)
-		Expect(log).ToNot(ContainSubstring(fmt.Sprintf("starting syncing of secret %v/dummy", f.Namespace.Name)))
-		Expect(log).ToNot(ContainSubstring(fmt.Sprintf("error obtaining PEM from secret %v/dummy", f.Namespace.Name)))
+
+		f.KubeClientSet.CoreV1().Secrets(f.Namespace).Update(context.TODO(), dummySecret, metav1.UpdateOptions{})
+
+		assert.NotContains(ginkgo.GinkgoT(), log, fmt.Sprintf("starting syncing of secret %v/dummy", f.Namespace))
+		assert.NotContains(ginkgo.GinkgoT(), log, fmt.Sprintf("error obtaining PEM from secret %v/dummy", f.Namespace))
+	})
+
+	ginkgo.It("should return the fake SSL certificate if the secret is invalid", func() {
+		host := "invalid-ssl"
+
+		// create a secret without cert or key
+		f.EnsureSecret(&v1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      host,
+				Namespace: f.Namespace,
+			},
+		})
+
+		f.EnsureIngress(framework.NewSingleIngressWithTLS(host, "/", host, []string{host}, f.Namespace, framework.EchoService, 80, nil))
+
+		f.WaitForNginxServer(host,
+			func(server string) bool {
+				return strings.Contains(server, "server_name invalid-ssl") &&
+					strings.Contains(server, "listen 443")
+			})
+
+		resp := f.HTTPTestClientWithTLSConfig(&tls.Config{ServerName: host, InsecureSkipVerify: true}).
+			GET("/").
+			WithURL(f.GetURL(framework.HTTPS)).
+			WithHeader("Host", host).
+			Expect().
+			Status(http.StatusOK).
+			Raw()
+
+		// check the returned secret is the fake one
+		cert := resp.TLS.PeerCertificates[0]
+
+		assert.Equal(ginkgo.GinkgoT(), len(resp.TLS.PeerCertificates), 1)
+		for _, pc := range resp.TLS.PeerCertificates {
+			assert.Equal(ginkgo.GinkgoT(), pc.Issuer.CommonName, "Kubernetes Ingress Controller Fake Certificate")
+		}
+
+		assert.Equal(ginkgo.GinkgoT(), cert.DNSNames[0], "ingress.local")
+		assert.Equal(ginkgo.GinkgoT(), cert.Subject.Organization[0], "Acme Co")
+		assert.Equal(ginkgo.GinkgoT(), cert.Subject.CommonName, "Kubernetes Ingress Controller Fake Certificate")
+
+		// verify the log contains a warning about invalid certificate
+		logs, err := f.NginxLogs()
+		assert.Nil(ginkgo.GinkgoT(), err, "obtaining nginx logs")
+		assert.Contains(ginkgo.GinkgoT(), logs, fmt.Sprintf("%v/invalid-ssl\" contains no keypair or CA certificate", f.Namespace))
 	})
 })

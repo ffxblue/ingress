@@ -19,140 +19,96 @@ package annotations
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
-	"github.com/parnurzeal/gorequest"
-
-	v1beta1 "k8s.io/api/extensions/v1beta1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
+	"github.com/onsi/ginkgo"
 
 	"k8s.io/ingress-nginx/test/e2e/framework"
 )
 
-var _ = framework.IngressNginxDescribe("Annotations - Alias", func() {
+var _ = framework.DescribeAnnotation("server-alias", func() {
 	f := framework.NewDefaultFramework("alias")
 
-	BeforeEach(func() {
-		err := f.NewEchoDeployment()
-		Expect(err).NotTo(HaveOccurred())
+	ginkgo.BeforeEach(func() {
+		f.NewEchoDeployment()
 	})
 
-	AfterEach(func() {
-	})
-
-	It("should return status code 200 for host 'foo' and 404 for 'bar'", func() {
+	ginkgo.It("should return status code 200 for host 'foo' and 404 for 'bar'", func() {
 		host := "foo"
 
-		ing, err := f.EnsureIngress(&v1beta1.Ingress{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      host,
-				Namespace: f.Namespace.Name,
-			},
-			Spec: v1beta1.IngressSpec{
-				Rules: []v1beta1.IngressRule{
-					{
-						Host: host,
-						IngressRuleValue: v1beta1.IngressRuleValue{
-							HTTP: &v1beta1.HTTPIngressRuleValue{
-								Paths: []v1beta1.HTTPIngressPath{
-									{
-										Path: "/",
-										Backend: v1beta1.IngressBackend{
-											ServiceName: "http-svc",
-											ServicePort: intstr.FromInt(80),
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		})
+		ing := framework.NewSingleIngress(host, "/", host, f.Namespace, framework.EchoService, 80, nil)
+		f.EnsureIngress(ing)
 
-		Expect(err).NotTo(HaveOccurred())
-		Expect(ing).NotTo(BeNil())
-
-		err = f.WaitForNginxServer(host,
+		f.WaitForNginxServer(host,
 			func(server string) bool {
-				return Expect(server).Should(ContainSubstring("server_name foo")) &&
-					Expect(server).ShouldNot(ContainSubstring("return 503"))
+				return strings.Contains(server, fmt.Sprintf("server_name %v", host))
 			})
-		Expect(err).NotTo(HaveOccurred())
 
-		resp, body, errs := gorequest.New().
-			Get(f.NginxHTTPURL).
-			Set("Host", host).
-			End()
+		f.HTTPTestClient().
+			GET("/").
+			WithHeader("Host", host).
+			Expect().
+			Status(http.StatusOK).
+			Body().Contains(fmt.Sprintf("host=%v", host))
 
-		Expect(len(errs)).Should(BeNumerically("==", 0))
-		Expect(resp.StatusCode).Should(Equal(http.StatusOK))
-		Expect(body).Should(ContainSubstring(fmt.Sprintf("host=%v", host)))
-
-		resp, body, errs = gorequest.New().
-			Get(f.NginxHTTPURL).
-			Set("Host", "bar").
-			End()
-
-		Expect(len(errs)).Should(BeNumerically("==", 0))
-		Expect(resp.StatusCode).Should(Equal(http.StatusNotFound))
-		Expect(body).Should(ContainSubstring("default backend - 404"))
+		f.HTTPTestClient().
+			GET("/").
+			WithHeader("Host", "bar").
+			Expect().
+			Status(http.StatusNotFound).
+			Body().Contains("404 Not Found")
 	})
 
-	It("should return status code 200 for host 'foo' and 'bar'", func() {
+	ginkgo.It("should return status code 200 for host 'foo' and 'bar'", func() {
 		host := "foo"
-		ing, err := f.EnsureIngress(&v1beta1.Ingress{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      host,
-				Namespace: f.Namespace.Name,
-				Annotations: map[string]string{
-					"nginx.ingress.kubernetes.io/server-alias": "bar",
-				},
-			},
-			Spec: v1beta1.IngressSpec{
-				Rules: []v1beta1.IngressRule{
-					{
-						Host: host,
-						IngressRuleValue: v1beta1.IngressRuleValue{
-							HTTP: &v1beta1.HTTPIngressRuleValue{
-								Paths: []v1beta1.HTTPIngressPath{
-									{
-										Path: "/",
-										Backend: v1beta1.IngressBackend{
-											ServiceName: "http-svc",
-											ServicePort: intstr.FromInt(80),
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		})
+		annotations := map[string]string{
+			"nginx.ingress.kubernetes.io/server-alias": "bar",
+		}
 
-		Expect(err).NotTo(HaveOccurred())
-		Expect(ing).NotTo(BeNil())
+		ing := framework.NewSingleIngress(host, "/", host, f.Namespace, framework.EchoService, 80, annotations)
+		f.EnsureIngress(ing)
 
-		err = f.WaitForNginxServer(host,
+		f.WaitForNginxServer(host,
 			func(server string) bool {
-				return Expect(server).Should(ContainSubstring("server_name foo")) &&
-					Expect(server).ShouldNot(ContainSubstring("return 503"))
+				return strings.Contains(server, fmt.Sprintf("server_name %v", host))
 			})
-		Expect(err).NotTo(HaveOccurred())
 
 		hosts := []string{"foo", "bar"}
 		for _, host := range hosts {
-			resp, body, errs := gorequest.New().
-				Get(f.NginxHTTPURL).
-				Set("Host", host).
-				End()
+			f.HTTPTestClient().
+				GET("/").
+				WithHeader("Host", host).
+				Expect().
+				Status(http.StatusOK).
+				Body().Contains(fmt.Sprintf("host=%v", host))
+		}
+	})
 
-			Expect(len(errs)).Should(BeNumerically("==", 0))
-			Expect(resp.StatusCode).Should(Equal(http.StatusOK))
-			Expect(body).Should(ContainSubstring(fmt.Sprintf("host=%v", host)))
+	ginkgo.It("should return status code 200 for hosts defined in two ingresses, different path with one alias", func() {
+		host := "foo"
+
+		ing := framework.NewSingleIngress("app-a", "/app-a", host, f.Namespace, framework.EchoService, 80, nil)
+		f.EnsureIngress(ing)
+
+		annotations := map[string]string{
+			"nginx.ingress.kubernetes.io/server-alias": "bar",
+		}
+		ing = framework.NewSingleIngress("app-b", "/app-b", host, f.Namespace, framework.EchoService, 80, annotations)
+		f.EnsureIngress(ing)
+
+		f.WaitForNginxServer(host,
+			func(server string) bool {
+				return strings.Contains(server, fmt.Sprintf("server_name %v bar", host))
+			})
+
+		hosts := []string{"foo", "bar"}
+		for _, host := range hosts {
+			f.HTTPTestClient().
+				GET("/app-a").
+				WithHeader("Host", host).
+				Expect().
+				Status(http.StatusOK).
+				Body().Contains(fmt.Sprintf("host=%v", host))
 		}
 	})
 })
